@@ -1,5 +1,7 @@
 import logging
-lg = logging.getLogger('flow')
+import pox.openflow.libopenflow_01 as of
+
+log = logging.getLogger('flow')
 
 from pox.lib.packet.ipv4 import ipv4
 from pox.lib.packet.ipv6 import ipv6
@@ -10,6 +12,9 @@ from pox.lib.packet.icmpv6 import icmpv6
 from pox.lib.util import initHelper
 
 class FlowHeader(object):
+	'''
+        The ID of a flow contains (protocol, source IP, source port, destination IP, destination port)
+    '''
 	def __init__(self, **kwargs):
 		self.proto = 0
 		self.sip = None
@@ -35,6 +40,16 @@ class FlowHeader(object):
 	def __str__(self):
 		return "%s %s[%d] => %s[%d]" % (self.proto, self.sip, self.sport, self.dip, self.dport)
 	
+	def absoluteEqual(self, other):
+		if not isinstance(other. FlowHeader): return False
+		return self.__eq__(other) or self.flip().__eq__(other)
+	
+	def toTuple(self, ip):
+		"""
+		This function returns the tuple of Ip in the flowheader (sip, dip) with always first member of the tuple the given ip in the parameter, we add the  
+		"""
+		return (self.sip, self.dip), self.sport if ip == self.sip else (self.dip, self.sip), self.dport
+	
 	def __eq__(self, other):
 		if not isinstance(other. FlowHeader): return False
 		if self.proto != other.proto : return False
@@ -50,12 +65,20 @@ class FlowHeader(object):
 	def __hash__(self):
 		return (self.proto, self.sip, self.sport, self.dip, self.dport).__hash__()
 
-def getFlowheader(packet):
-	if isinstance(packet, ipv4) or isinstance(packet, ipv6):
-		if isinstance(packet.next, udp) or isinstance(packet.next, tcp):
-			return FlowHeader(proto=packet.protocol, sip=packet.srcip, dip=packet.dstip, sport=packet.next.srcport, dport=packet.next.dstport)
-		elif isinstance(packet.next, icmp) or isinstance(packet.next, icmpv6):
-			return FlowHeader(proto=packet.protocol, sip=packet.srcip, dip=packet.dstip, sport=packet.next.type, dport=packet.next.code)
+	@staticmethod
+	def fromPacket(packet):
+		if isinstance(packet, ipv4) or isinstance(packet, ipv6):
+			if isinstance(packet.next, udp) or isinstance(packet.next, tcp):
+				return FlowHeader(proto=packet.protocol, sip=packet.srcip, dip=packet.dstip, sport=packet.next.srcport, dport=packet.next.dstport)
+			elif isinstance(packet.next, icmp) or isinstance(packet.next, icmpv6):
+				return FlowHeader(proto=packet.protocol, sip=packet.srcip, dip=packet.dstip, sport=packet.next.type, dport=packet.next.code)
+
+	@staticmethod
+	def fromMatch(match):
+		if not isinstance(match, of.ofp_match):
+			return None
+		return FlowHeader(proto=match.nw_proto, sip=match.nw_src, dip=match.nw_dst, sport=match.tp_src, dport=match.tp_dst)
+
 
 class Flow(FlowHeader):
 	def __init__(self, **kwargs):
