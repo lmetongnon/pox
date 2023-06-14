@@ -27,6 +27,9 @@ from pox.boxes.proto.mexp import VERSION_MEXP_BOX_IPV4, VERSION_MEXP_BOX_IPV6
 # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 # ==============================================================================
 class LookupRequest(packet_base):
+    '''
+        The implementation of the lookup request where an ip is send and we expect to get the managing box identity.
+    '''
     def __init__(self, version=None, raw=None, prev=None, **kwargs):
         packet_base.__init__(self)
 
@@ -97,6 +100,9 @@ LookupDelegateRequest = LookupRequest
 
 
 LookupReply(packet_base):
+    '''
+        The implementation of the reply of a lookup request where your zone box manager send you the identity (IP, port) of the box you need.
+    '''
     def __init__(self, version=None, raw=None, prev=None, **kwargs):
         packet_base.__init__(self)
 

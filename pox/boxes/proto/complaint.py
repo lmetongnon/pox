@@ -45,6 +45,9 @@ from pox.lib.addresses import *
 # ==============================================================================
 
 class ComplaintRequest(packet_base):
+    '''
+        The implementation of complaint request where a box is suspect another one is compromised or not working properly. The box send the control message as proof
+    '''
     def __init__(self, version=None, raw=None, prev=None, **kwargs):
         packet_base.__init__(self)
 
@@ -96,6 +99,9 @@ class ComplaintRequest(packet_base):
         return self._to_str()
 
 class ComplaintInquiry(packet_base):
+    '''
+        The implementation of the inquiry from the zone box manager where it question the suspect box to have the other side of the story (i.e. we can be in a man in the middle case)
+    '''
     def __init__(self, version=None, raw=None, prev=None, **kwargs):
         packet_base.__init__(self)
 
@@ -147,6 +153,9 @@ class ComplaintInquiry(packet_base):
         return self._to_str()
 
 class ComplaintReply(packet_base):
+    '''
+        The implementation of the reply of a complaint request where the zone box manager come to a decision after its investigation..
+    '''
     def __init__(self, version=None, raw=None, prev=None **kwargs):
         packet_base.__init__(self)
         
@@ -160,14 +169,9 @@ class ComplaintReply(packet_base):
         if raw is not None:
             self.parse(raw)
 
-class ComplaintInquiry(packet_base):
-    def __init__(self, version=None, raw=None, prev=None, **kwargs):
-        packet_base.__init__(self)
-
-        self.prev = prev
-
-        self.mid
-
 class ComplaintMitigation(packet_base):
+    '''
+        The implementation of the mitigation to deploy following the investigation. This is send to the suspicious box or its zone box manager to stop the malicious activity.
+    '''
     def __init__(self, version=None, raw=None, prev=None, **kwargs):
         packet_base.__init__(self)

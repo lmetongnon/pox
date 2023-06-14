@@ -20,9 +20,9 @@ from socket import *
 bufferSize = 4096
 TBox = [('', 15700)]
 class MessageManager(object):
-	"""
+	'''
 	Class managing message exchange between the boxes
-	"""
+	'''
 	def __init__(self, box, ip, port):
 
 		self.box = box

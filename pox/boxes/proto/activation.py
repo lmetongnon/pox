@@ -12,15 +12,18 @@ from pox.boxes.proto.mexp import VERSION_MEXP_BOX_IPV4, VERSION_MEXP_BOX_IPV6
     # ZONE_RPLY     = 3
     # REGISTRATION_RQST = 4
     # REGISTRATION_RPLY = 5
-# ==============================================================================
+# =============================================================================
 #  0                   1                   2                   3  
 #  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 # |              Port             |            Reserved           |
 # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-# ==============================================================================
+# =============================================================================
 
 class ZoneRequest(packet_base):
+    '''
+		The implementation of a request to a top box to get the ip address of the zone box managing your area.
+    '''
     def __init__(self, version=None, raw=None, prev=None, **kwargs):
         packet_base.__init__(self)
 
@@ -56,7 +59,7 @@ class ZoneRequest(packet_base):
 
     def __repr__(self) -> str:
         return self._to_str()
-# ==============================================================================
+# =============================================================================
 #  0                   1                   2                   3  
 #  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -64,7 +67,7 @@ class ZoneRequest(packet_base):
 # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 # |                             BoxIP                             |
 # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-# ==============================================================================
+# =============================================================================
 #  0                   1                   2                   3  
 #  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -78,9 +81,12 @@ class ZoneRequest(packet_base):
 # +                                                               +
 # |                                                               |
 # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-# ==============================================================================
+# =============================================================================
 
 class ZoneReply(packet_base):
+    '''
+		The implementation of the reply of a zone request where a top box send the ip address of the zone box managing your area.
+    '''
     def __init__(self, version=None, raw=None, prev=None, **kwargs):
         packet_base.__init__(self)
 
@@ -157,6 +163,9 @@ class ZoneReply(packet_base):
 # =============================================================================
 
 class RegistrationRequest(packet_base):
+    '''
+		The implementation of the request to your zone box manager for registration so other boxes in the system can contact you. You send all the network you manage.
+    '''
     def __init__(self, version=None, raw=None, prev=None, **kwargs):
         packet_base.__init__(self)
 
@@ -237,6 +246,9 @@ class RegistrationRequest(packet_base):
 # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 # ==============================================================================
 class RegistrationReply(packet_base):
+    '''
+		The implementation of the reply of a registration request where your zone manager accept/deny the registration of the network you manage.
+    '''
     def __init__(self, version=None, raw=None, prev=None, **kwargs):
         packet_base.__init__(self)
 
