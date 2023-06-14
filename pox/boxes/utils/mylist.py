@@ -1,4 +1,6 @@
 import logging
+import pox.openflow.libopenflow_01 as of
+
 from pox.boxes.utils.tools import Permission
 from pox.boxes.utils.flow import FlowHeader
 lg = logging.getLogger('list')
@@ -55,10 +57,25 @@ class List(object):
 		lg.warning(*args)
 
 class BoxList(List):
+	'''
+        The box list contained a map to access the a box managing a network. You can add new tuples (IP network - Box IP) and query them when needed
+    '''
 	def __init__(self):
 		List.__init__(self)
 
+
 	def add(self, networks, boxID):
+		"""
+		Adds the link (network - BoxID) to the list 
+
+		@type networks: IPAddr/IPAddr6
+		@param networks: The networks manage by the box
+		@type boxID: tuple(IPAddr/IPAddr6, int)
+		@param boxID: The box identity (address, port)
+
+		@rtype: None
+		@return: None
+		"""
 		self.msg("add len: %d" % len(List.keys(self)))
 		if not isinstance(boxID, tuple):
 			self.err("add %s" % boxID)
@@ -73,9 +90,26 @@ class BoxList(List):
 			List.add(self, networks, boxID)
 	
 	def values(self):
+		"""
+		Return a list of the network present in this list 
+
+		@rtype: list
+		@return: The list of all box ID as a list
+		"""
 		return [self[key] for key, _ in self.keys()]
 
 	def _check(self, network, boxIP):
+		"""
+		Check that an Ipv4 network is protect by an IPv4 Box and we have no mix 
+
+		@type network: IPAddr/IPAddr6
+		@param network: The networks IP
+		@type boxID: tuple(IPAddr/IPAddr6, int)
+		@param boxID: The box identity (address, port)
+
+		@rtype: None
+		@return: None
+		"""
 		self.msg("_check : %s %s" % (network, boxIP))
 		if isinstance(boxIP, IPAddr) and not isinstance(network, IPAddr):
 			self.msg("network address %s is not ipv4" % network)
@@ -85,9 +119,18 @@ class BoxList(List):
 			return
 
 	def exists(self, network):
-		if List.exists(network):
+		"""
+		Check that a network is present inside the box list
+
+		@type network: IPAddr/IPAddr6
+		@param network: The networks IP
+
+		@rtype: bool
+		@return: If the network is presents
+		"""
+		if List.exists(self, network):
 			return True
-		for net in List.keys():
+		for net in List.keys(self):
 			if net.in_network(network):
 				return True
 		return False
@@ -118,6 +161,9 @@ class BoxList(List):
 		self.msg("__setitem__ after len: %d" % len(List.keys(self)))
 
 class PermissionList(List):
+	'''
+        The permission list contained a map to access a flow and its permission. A flow is ID by its header
+    '''
 	def __init__(self):
 		List.__init__(self)
 
@@ -126,7 +172,6 @@ class PermissionList(List):
 			self.err("add %s %s" % flowHeader, permission)
 			return
 		List.add(self, flowHeader, permission)
-
 
 	def __getitem__(self, flowHeader):
 		return List.__getitem__(self, flowHeader)
@@ -140,3 +185,43 @@ class PermissionList(List):
 		if not isinstance(flowHeader, FlowHeader):
 			self.err("__contains__ %s %s" % flowHeader)
 		return List.__contains__(self, flowHeader)
+
+class FlowList(object):
+	'''
+        The flow list contained information related to an device and all its communication. We also have this same device with the same communication but organize with specific flow header 
+    '''
+	def __init__(self):
+		self.ipSet = dict()	# sip => dip => set(dport) all flow from/to the device
+		self.ipFlows = dict() # ip => flowheader => flow, all the flowheader to the device and the corresponding flow
+
+	def updateSet(self, sip, dip, dport):
+		if sip not in self.ipSet:
+			self.ipSet[sip] = List()
+		if dip not in self.ipSet[sip]:
+			self.ipSet[sip][dip] = set()
+		self.ipSet[sip][dip].add(dport)
+
+	def updateFlow(self, sip, flow):
+		if not isinstance(flow, of.ofp_flow_stats):
+			return
+		if sip not in self.ipFlows:
+			self.ipFlows[sip] = List()
+		flowheader = FlowHeader.fromMatch(flow.match)
+		if flowheader not in self.ipFlows[sip]:
+			self.ipFlows[sip][flowheader].add(flow)
+	
+	def __str__(self):
+		msg ='['
+		msg += str(self.ipSet)+" "
+		for ip in self.ipFlows:
+			msg += str(self.ipFlows[ip])+" "
+		msg+=']'
+		return msg 
+
+	def add(self, ip, flow):
+		# if not isinstance(flow, Flow):
+		# 	self.err("add flow is not a Flow instance")
+		# 	return
+		if not ipSet[ip]:
+			self.ipSet[ip] = set()
+		# if self.ipSet[ip]:
