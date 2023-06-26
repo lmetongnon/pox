@@ -36,7 +36,7 @@ class LookupRequest(packet_base):
         self.prev       = prev
         self.version    = version
 
-        self.userIP     = None  # 32 - 128 bits
+        self.userIP     = IP_ANY if self.version in VERSION_MEXP_BOX_IPV4 else IPAddr6.UNDEFINED  # 32 - 128 bits
 
         if raw is not None:
             self.parse(raw)
@@ -58,7 +58,7 @@ class LookupRequest(packet_base):
         
         self.parsed = True
 
-    def __eq__(self, other:LookupRequest)->bool:
+    def __eq__(self, other:"LookupRequest")->bool:
         if not isinstance(other, LookupRequest): return False
         if self.userIP != other.userIP: return False
         return True
@@ -66,10 +66,13 @@ class LookupRequest(packet_base):
     def _to_str(self) -> str:
         return "[LookupRequest User IP:%s]" % (self.userIP)
 
-    def __repr__(self) -> rtr:
+    def __repr__(self) -> str:
         return self._to_str()
 
-LookupDelegateRequest = LookupRequest
+class LookupDelegateRequest(LookupRequest):
+    def _to_str(self) -> str:
+        return "[LookupDelegateRequest User IP:%s]" % (self.userIP)
+
 
 # ==============================================================================
 #  0                   1                   2                   3  
@@ -78,6 +81,10 @@ LookupDelegateRequest = LookupRequest
 # |              Port             |            Reserved           |
 # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 # |                             BoxIP                             |
+# +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+# |                            Network                            |
+# +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+# |                            Netmask                            |
 # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 # ==============================================================================
 
@@ -96,10 +103,20 @@ LookupDelegateRequest = LookupRequest
 # +                                                               +
 # |                                                               |
 # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+# |                                                               |
+# +                                                               +
+# |                                                               |
+# +                            Network                            +
+# |                                                               |
+# +                                                               +
+# |                                                               |
+# +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+# |                            Netmask                            |
+# +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 # ==============================================================================
 
 
-LookupReply(packet_base):
+class LookupReply(packet_base):
     '''
         The implementation of the reply of a lookup request where your zone box manager send you the identity (IP, port) of the box you need.
     '''
@@ -109,8 +126,10 @@ LookupReply(packet_base):
         self.prev       = prev
         self.version    = version
 
-        self.port       = 0 # 16 bits
-        self.boxIP      = None # 32 - 128 bits
+        self.port      = 0     # 16 bits
+        self.boxIP     = IP_ANY if self.version in VERSION_MEXP_BOX_IPV4 else IPAddr6("::")  # 32 - 128 bits
+        self.network   = IP_ANY if self.version in VERSION_MEXP_BOX_IPV4 else IPAddr6("::")  # x 32 - 128 bits
+        self.netmask   = 0  # x 32 bits
 
         if raw is not None:
             self.parse(raw)
@@ -120,33 +139,48 @@ LookupReply(packet_base):
     def hdr (self, payload:"packet_base subclass") -> bytes:
         s = struct.pack('!H', self.port)
         s+= b'\000' * 2
-        s += boxIP.raw
+        s += self.boxIP.raw
+        s += self.network.raw
+        s +=  struct.pack('!i', self.netmask)
         return s
 
     def parse (self, raw:bytes):
         assert isinstance(raw, bytes)
         self.next = None # In case of unfinished parsing
         self.raw = raw
-        (self.port) = struct.unpack('!H', raw[0:2])
+        (self.port) = struct.unpack('!H', raw[0:2])[0]
         raw = raw[4:]
-        size = len(raw)
         if self.version in VERSION_MEXP_BOX_IPV4:
-            self.boxIP = IPAddr(raw, networkOrder = False)
+            self.boxIP = IPAddr(raw[:4], networkOrder = False)
+            raw = raw[4:]
         elif self.version in VERSION_MEXP_BOX_IPV6:
-            self.boxIP = IPAddr6(raw, networkOrder = False)
+            self.boxIP = IPAddr6(raw[:16], networkOrder = False)
+            raw = raw[16:]
+        
+        if len(raw) == 8:
+            self.network = IPAddr(raw[:4], networkOrder = False)
+            raw = raw[4:]
+        else:
+            self.network = IPAddr6(raw[:16], networkOrder = False)
+            raw = raw[16:]
+        (self.netmask) = struct.unpack('!i', raw)[0]
         
         self.parsed = True
 
-    def __eq__(self, other:LookupReply) -> bool:
+    def __eq__(self, other:"LookupReply") -> bool:
         if not isinstance(other, LookupReply): return False
         if self.port != other.port: return False
         if self.boxIP != other.boxIP: return False
+        if self.network != other.network: return False
+        if self.netmask != other.netmask: return False
         return True
 
-    def _to_str(self):
-        return "[LookupReply %d => %s:%d]" % (self.version, self.boxIP, self.port)
+    def _to_str(self) -> str:
+        return "[LookupReply v(%d) %s/%d => %s:%d]" % (self.version, self.network, self.netmask, self.boxIP, self.port)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self._to_str()
 
-LookupDelegateReply=LookupReply
+class LookupDelegateReply(LookupReply):
+    def _to_str(self) -> str:
+        return "[LookupDelegateReply v(%d) %s/%d => %s:%d]" % (self.version, self.network, self.netmask, self.boxIP, self.port)
