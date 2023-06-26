@@ -284,7 +284,7 @@ class Mexp(packet_base):
 	def parseAlert(self, version:int):
 		from pox.boxes.proto.alert import AlertNotification, AlertBrdc, AlertAck
 		switcher= {
-			ALERT_NOTIF: AlertNotif,
+			ALERT_NOTIF: AlertNotification,
 			ALERT_BRDT: AlertBrdc,
 			ALERT_ACK: AlertAck
 		}
