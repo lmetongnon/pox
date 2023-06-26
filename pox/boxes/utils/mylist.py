@@ -7,11 +7,13 @@ lg = logging.getLogger('list')
 
 from pox.lib.addresses import IPAddr, IPAddr6
 
+import time
+
 class List(object):
 	def __init__(self):
 		self.records = {}
 
-	def add(self, key, value):
+	def add(self, key, value) -> None:
 		self.records[key] = value
 
 	def delete(self, key):
@@ -44,6 +46,9 @@ class List(object):
 	def __contains__(self, key):
 		return self.exists(key)
 
+	def __str__(self):
+		return self.records.__str__()
+
 	def msg(self, *args):
 		""" Shortcut for logging """
 		lg.info(*args)
@@ -63,8 +68,7 @@ class BoxList(List):
 	def __init__(self):
 		List.__init__(self)
 
-
-	def add(self, networks, boxID):
+	def add(self, networks:"(IPAddr/IPAddr6, int)", boxID:"IPAddr/IPAddr6"):
 		"""
 		Adds the link (network - BoxID) to the list 
 
@@ -89,7 +93,7 @@ class BoxList(List):
 			self._check(networks, boxID[0])
 			List.add(self, networks, boxID)
 	
-	def values(self):
+	def values(self) -> ["IPAddr/IPAddr6"]:
 		"""
 		Return a list of the network present in this list 
 
@@ -98,7 +102,7 @@ class BoxList(List):
 		"""
 		return [self[key] for key, _ in self.keys()]
 
-	def _check(self, network, boxIP):
+	def _check(self, network:"(IPAddr/IPAddr6, int)", boxIP:"IPAddr/IPAddr6"):
 		"""
 		Check that an Ipv4 network is protect by an IPv4 Box and we have no mix 
 
@@ -131,14 +135,14 @@ class BoxList(List):
 		if List.exists(self, network):
 			return True
 		for net in List.keys(self):
-			if net.in_network(network):
+			if network.in_network(net):
 				return True
 		return False
 
 	def __getitem__(self, network):
 		self.msg("__getitem__ len: %d" % len(List.keys(self)))
 		if List.exists(self, network):
-			return List__getitem__(self, network)
+			return List.__getitem__(self, network)
 		for net in List.keys(self):
 			self.msg("__getitem__ %s" % (net,))
 			if network.in_network(net):
@@ -159,6 +163,12 @@ class BoxList(List):
 		self._check(networks[0], boxID[0])
 		List.__setitem__(self, networks, boxID)
 		self.msg("__setitem__ after len: %d" % len(List.keys(self)))
+
+	def getNetwork(self, BoxID):
+		for net in List.keys(self):
+			if self.__getitem__(net) == BoxID:
+				return net
+		return None
 
 class PermissionList(List):
 	'''
@@ -190,18 +200,20 @@ class FlowList(object):
 	'''
         The flow list contained information related to an device and all its communication. We also have this same device with the same communication but organize with specific flow header 
     '''
-	def __init__(self):
+	def __init__(self, timeout = -1):
+		self.timestamp = time.time()
+		self.timeout = timeout
 		self.ipSet = dict()	# sip => dip => set(dport) all flow from/to the device
 		self.ipFlows = dict() # ip => flowheader => flow, all the flowheader to the device and the corresponding flow
 
-	def updateSet(self, sip, dip, dport):
+	def updateSet(self, sip, dip, dport:int):
 		if sip not in self.ipSet:
 			self.ipSet[sip] = List()
 		if dip not in self.ipSet[sip]:
 			self.ipSet[sip][dip] = set()
 		self.ipSet[sip][dip].add(dport)
 
-	def updateFlow(self, sip, flow):
+	def updateFlow(self, sip, flow:"Flow"):
 		if not isinstance(flow, of.ofp_flow_stats):
 			return
 		if sip not in self.ipFlows:
@@ -212,13 +224,14 @@ class FlowList(object):
 	
 	def __str__(self):
 		msg ='['
+		msg += str(self.timestamp)+" "
 		msg += str(self.ipSet)+" "
 		for ip in self.ipFlows:
 			msg += str(self.ipFlows[ip])+" "
 		msg+=']'
 		return msg 
 
-	def add(self, ip, flow):
+	def add(self, ip, flow:"Flow"):
 		# if not isinstance(flow, Flow):
 		# 	self.err("add flow is not a Flow instance")
 		# 	return
