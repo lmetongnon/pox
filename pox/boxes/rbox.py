@@ -5,27 +5,44 @@ from pox.lib.packet.ethernet import ethernet
 from pox.lib.addresses import IPAddr, IPAddr6
 
 from pox.boxes.manager import Rmanager 
-from pox.boxes.utils.mylist import List, PermissionList
-from pox.boxes.utils.flow import FlowHeader, Flow, getFlowheader
+from pox.boxes.utils.mylist import List, PermissionList, FlowList
+from pox.boxes.utils.flow import FlowHeader, Flow
 from pox.boxes.proto.permission import PermissionRequest, PermissionReply
-from pox.boxes.proto.mexp import PERMISSION, PERMISSION_RQST, PERMISSION_RPLY
+from pox.boxes.proto.alert import AlertNotification, AlertBrdc, AlertAck
+from pox.boxes.proto.mexp import PERMISSION, PERMISSION_RQST, PERMISSION_RPLY, ALERT, ALERT_NOTIF
+from pox.boxes.utils.detection import Detection
+from pox.boxes.utils.mitigation import Mitigation
 # from pox.boxes.utils.tools import FlowHeader, Flow, getFlowheader
 
-import time
+import time, sched, threading
 
 log = core.getLogger('rbox')
 
 class Rbox(object):
+	'''
+	The class describes the Rear box of the system, which is inside the local network and acts as s firewall.
+	'''
 	DEFAULT_PERMISSION_DROP_DURATION = 100
 	DEFAULT_ALERT_DROP_DURATION = 100
 
 	__instance = None
 
 	@staticmethod
-	def getInstance(connection, ip, port, networks):
+	def getInstance(connection=None, ip=None, port=None, networks=None):
+		"""
+		To allow only one instance of the Rear Box because the openflow's call happen a lot
+		@type connection:
+		@param connection:
+		@type ip: IPAddr/IPAddr6
+		@param ip: The address of the Rearbox
+		@type port: int
+		@param port: The port use by the rearbox (the controller port)
+		@type networks: IPAddr/IPAddr6 or list
+		@param networks: The networks protect by the Rearbox
+		"""
 		if Rbox.__instance is None:
 			Rbox(connection, ip, port, networks)
-		else:
+		elif connection :
 			Rbox.__instance.connection = connection
 			connection.addListeners(Rbox.__instance)
 		return Rbox.__instance
@@ -36,6 +53,8 @@ class Rbox(object):
 		# Keep track of the connection to the switch so that we can
 		# send it messages!
 		self.connection = connection
+
+		self.flowCollector = None
 
 		# The box IP address
 		self.ip = ip
@@ -62,17 +81,36 @@ class Rbox(object):
 
 		self.permissionList = PermissionList()
 
-		self.flowList = List()
+		self.flowList = FlowList(60.0 * 5)
 
 		self.eventList = List()
+
+		self.alertList = List()		
 		
 		# This binds our PacketIn event listener
 		connection.addListeners(self)
 
+		self.updateFlowData()
+
+		# checking for automatic list
+		# For the scheduling check
+		self.watchtimer = sched.scheduler(time.time, time.sleep)
+		self.watchtimer.enter(.5, 1, self.checkingList, ())
+		threading.Thread(target=self.watchtimer.run).start()
+
+    	# Detection and mitigation object
+		self.detection = Detection(self)
+		self.mitigation = Mitigation(self)
+
 	# standard functions flood, send drop
 	def flood (self, event, message = None):
-
-		""" Floods the packet """
+		"""
+		Floods the packet
+		@type event:
+		@param event:
+		@type message: str
+		@param message: just a comment to show the message we flood
+		"""
 		packet = event.parsed # This is the parsed packet data.
 		packetIn = event.ofp # The actual ofp_packet_in message.zero
 		switchPort = event.port # the port on the switch
@@ -93,7 +131,9 @@ class Rbox(object):
 		self.connection.send(msg)
 
 	def send(self, event, priority=None, idleTimeout=10, hardTimeout=30):
-		"""	send packet in messages to the switch. """
+		"""
+		send packet in messages to the switch.
+		"""
 		packet = event.parsed
 		self.macToPort[packet.src] = event.port # 1
 
@@ -153,6 +193,7 @@ class Rbox(object):
 		"""
 		Handles packet in messages from the switch.
 		"""
+		self.updateFlowData()
 		packet = event.parsed
 		if not packet.parsed:
 			log.warning()
@@ -162,36 +203,48 @@ class Rbox(object):
 		else:
 			self.handle(event)
 
+	def isOurDevice(self, deviceIP):
+		for net in self.networks:
+			if deviceIP.in_network(net):
+				return True
+		return False
+	
 	def handle(self, event):
 		""" 
-		This code will be executed for every non control packet.
+		This code will be executed for every non control packet. we check if the message is coming or leaving from the network and send different requests
+		@type event:
+		@param event: The message from the end device
 		"""
 		packet = event.parsed # This is the parsed packet data.
-		flowHeader = getFlowheader(packet.next)
+		flowHeader = FlowHeader.fromPacket(packet.next)
 		log.debug("handle ethernet of type %d, ports %s -> %s."
 			  % (packet.type, packet.src, packet.dst))
 		log.debug("handle flowHeader %s" % flowHeader)
 		log.debug("IP %d %d %s => %s", packet.next.v, packet.next.protocol, packet.next.srcip, packet.next.dstip)
 
-		outgoingMessage = False
-		for net in self.networks:
-			if flowHeader.sip.in_network(net):
-				outgoingMessage = True
-				break
-
 		permission = self.permissionList[flowHeader]
-		if outgoingMessage:
+		if self.isOurDevice(flowHeader.sip):
 			# outgoing Communication
 			self.outgoingMessage(event, permission, flowHeader)
 		else:
 			# incoming Communication
 			# Check distributed scanning attacks
-			if self.scanPattern(flowHeader.sip):
+			if self.detection.scanDectection(flowHeader.sip, self.flowList):
 				log.debug("Scan pattern attacks detect from %s" % flowHeader.sip)
+				self.alertList.add(flowHeader.dip, Alert(Alert.SCAN, flowHeader))
 				self.drop(event, Rbox.DEFAULT_ALERT_DROP_DURATION)		
 			self.incomingMessage(event, permission, flowHeader)
 
- 
+	def outgoingMessage(self, event, permission:"Permission", flowHeader:"FlowHeader"):
+		"""
+		We check every new message to see if we should send then or request new permission.
+		@type event: 
+		@param event: The event related to the message of the end devices 
+		@type permission: Permission
+		@param permission: None for new communication and the previous permission if the message is related to an old valid communication 
+		@type flowHeader: FlowHeader
+		@param flowHeader: The flow header of the incoming message
+		"""
 		if permission :
 			# Permission exists
 			remainingTime = (time.time() - permission.timestamp)
@@ -199,7 +252,7 @@ class Rbox(object):
 				log.debug("handle send the message of %s" % flowHeader)
 				self.send(event, 1, remainingTime, remainingTime) 
 		else :
-			box = self.messageManager.boxRecords[flowHeader.dip]
+			box = self.messageManager.lookupBox(flowHeader.dip)
 			if box is None:
 				log.debug("No Box exists for %s" % flowHeader.dip)
 				self.drop(event, Rbox.DEFAULT_PERMISSION_DROP_DURATION)
@@ -207,7 +260,14 @@ class Rbox(object):
 				permissionRequest = PermissionRequest(sip=flowHeader.sip, dip=flowHeader.dip, proto=flowHeader.proto, sport=flowHeader.sport, dport=flowHeader.dport, duration=10)
 				self.messageManager.createMessage(event, PERMISSION, PERMISSION_RQST, permissionRequest, flowHeader.dip)
 	
-	def incomingMessage(self, permission, flowHeader):
+	def incomingMessage(self, event, permission:"Permission", flowHeader:"FlowHeader"):
+		"""
+		We check every new message to see if they can go throw.
+		@type permission: Permission
+		@param permission: None for new communication and the previous permission if the message is related to an old valid communication 
+		@type flowHeader: FlowHeader
+		@param flowHeader: The flow header of the incoming message
+		"""
 		#check if packet has permission
 		if permission:
 			# Permission exists
@@ -219,26 +279,42 @@ class Rbox(object):
 				log.debug("handle send the message of %s" % flowHeader)
 				self.drop(event, DEFAULT_PERMISSION_DROP_DURATION)
 		else :
-			box = self.getRboxdetail(flowHeader.dip)
-			if box is not None:
+			# box = self.getDeviceRbox(flowHeader.sip)
+			box = self.messageManager.lookupBox(flowHeader.sip)
+			if box is None:
 				# Default Policies
 				log.debug("No Box exists for %s" % flowHeader.dip)
 				self.drop(event, Rbox.DEFAULT_PERMISSION_DROP_DURATION)
 			else:
 				# Alert because message come after permission is over
-				log.debug("handle incoming packet without permission")
+				log.debug("handle incoming packet without permission %s" %(flowHeader))
 				alertRequest = AlertNotification(sip=flowHeader.sip, dip=flowHeader.dip, proto=flowHeader.proto, alertType=0, sport=flowHeader.sport, dport=flowHeader.dport, duration=Rbox.DEFAULT_ALERT_DROP_DURATION)
 				self.messageManager.createMessage(event, ALERT, ALERT_NOTIF, alertRequest, flowHeader.sip)
 				self.drop(event, Rbox.DEFAULT_ALERT_DROP_DURATION)
 	
-	# def getRboxdetail(self, endUserAddress):
+	def updateFlowData(self):
+		"""
+		We update the flow information here periodically for the detection process
+		"""
+		log.debug ("get_flows")
+		self.connection.send(of.ofp_stats_request(body=of.ofp_flow_stats_request()))
+		if self.flowCollector is not None:
+			self.flowCollector.check()
+	
+	# def getDeviceRbox(self, endUserAddress):
 	# 	box = self.messageManager.boxRecords[endUserAddress]
 	# 	if box is None:
 	# 		searchRequest = 
 
-	def requestPermission(self, permRqst):
+	def requestPermission(self, permRqst:"PermissionRequest"):
 		""" 
 		When a permission request come, check if the device in its current situation can handle it.
+
+		@type permRqst: PermissionRequest
+		@param permRqst: The request from the sender Rear box
+
+		@rtype: PermissionReply
+		@return We send the permission reply after checking the device policy and it's current state
 		"""
 		# duration, maxPacketSize, decision = checkDevice(permRqst):
 		# policy = self.policyList[permRqst.dip]
@@ -251,9 +327,12 @@ class Rbox(object):
 		else:
 			return PermissionReply(duration=policy.duration, maxPacketSize=policy.maxPacketSize, decision=decision)
 
-	def replyPermission(self, mexp):			
+	def replyPermission(self, mexp:"Mexp"):			
 		""" 
-		When we get a permission reply, check if the device in its current situation can handle it.
+		When we get a permission reply, we checked the permission and send or drop the end device packet
+
+		@type mexp: Mexp
+		@param mexp: the message reply coming from the destination Rear box
 		"""
 		permReply = mexp.payload
 		if permReply.decision:
@@ -262,10 +341,27 @@ class Rbox(object):
 		else:
 			self.drop(event, Rbox.DEFAULT_ALERT_DROP_DURATION)
 
-	def setEvent(self, event, mid, dip=None, dport=None):
+	def setEvent(self, event, mid:int, dip=None, dport=None):
+		"""
+		We save the event for future when we reach a decision related to end device after exchange with other Box
+
+		@type event:
+		@param event:
+		@type mid: int
+		@param mid: The message ID of the message
+		"""
 		self.eventList[mid] = event
 	
-	def getEvent(self, mid, dip=None, dport=None):
+	def getEvent(self, mid:int, dip=None, dport=None):
+		"""
+		We can get a previous saved event using the right mid, when we reach a decision related to end device after exchange with other Box
+
+		@type mid: int
+		@param mid: The message ID of the message
+
+		@rtype event
+		@return: The pox controller event where the end device message is saved
+		"""
 		return self.eventList[mid]
 	
 	# def checkDevice(self, permRqst):
@@ -278,20 +374,36 @@ class Rbox(object):
 	# 		return policy.duration, policy.maxPacketSize, decision
 		# duration = permRqst.duration if permRqst.duration < policy.duration else policy.duration
 		# maxPacketSize = permRqst.maxPacketSize if permRqst.maxPacketSize < policy.maxPacketSize else policy.maxPacketSize
+	
+	def checkingPermission(self):
+		"""
+		We check the list of permission with the current time to remove expired device's permission 
+		"""
+		for key in self.permissionList.keys():
+			if (time.time() - self.permissionList[key].timestamp) >= self.self.permissionList[key].duration:
+				del self.permissionList[key]
 
-# class RboxFlow(object):
+	def checkingAlert(self):
+		"""
+		We check the list of the alert and started mitigation process
+		"""
+		for key in self.alertList.keys():
+			alert = self.alertList[key].pop()
+			if isinstance(alert.flowHeader, list):
+				for flowHeader, flow in zip(alert.flowHeader, alert.flow):
+					self.mitigation(Alert(alert.alertType, flowHeader, flow))
 
-# 	def __init__(self, stats):
-
-# 		self.stats = stats
-# 		self.box = Rbox.getInstance(None)
-# 		self.box.flowcollector = self
-# 		self._init()
-
-# 	def _init(self):
+	def checkingList(self):
+		"""
+		We check all the list here from time to time
+		"""
+		self.checkingAlert()
+		self.checkingPermission()
+		self.updateFlowData()
 
 # def launch (ip=IPAddr6("2000:db8:1::1"), port=15500, networks=[IPAddr6.parse_cidr("2000:db8::/32")]):
 def launch (ip=IPAddr("10.0.0.200"), port=15500, networks=[IPAddr.parse_cidr("10.0.0.0/8")]):
+	from pox.boxes.flowcollector import FlowCollector
 	"""
 	Starts the component
 	"""
@@ -302,9 +414,9 @@ def launch (ip=IPAddr("10.0.0.200"), port=15500, networks=[IPAddr.parse_cidr("10
 		)
 		Rbox.getInstance(event.connection, ip, port, networks)
 	
-	# def startFlowCollection(event):
-	# 	log.debug("Switch Flow collection: %u flows", len(events.stats))
-	# 	RboxFlow(event.stat)
+	def startFlowCollection(event):
+		log.debug("Switch Flow collection: %u flows", len(event.stats))
+		FlowCollector(event.stats)
 	
 	core.openflow.addListenerByName("ConnectionUp", startSwitch)
-	# core.openflow.addListenerByName("FlowStatsReceived", startFlowCollection)
+	core.openflow.addListenerByName("FlowStatsReceived", startFlowCollection)
