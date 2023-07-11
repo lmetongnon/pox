@@ -74,8 +74,10 @@ ALERT_ACK		= 1
 ALERT_BRDT		= 2
 
 # TCode			= 2
-CONTROL_NOTIF	= 0
-CONTROL_ACK		= 1
+COMPLAINT_RQST	= 0
+COMPLAINT_INQ	= 1
+COMPLAINT_RPLY	= 2
+COMPLAINT_MITI	= 3
 
 # TCode			= 3
 LOOKUP_RQST		= 0
@@ -92,8 +94,8 @@ REG_RQST 		= 4
 REG_RPLY 		= 5
 
 # TCode			= 5
-PERMISSION_RQST	= 1
-PERMISSION_RPLY	= 2
+PERMISSION_RQST	= 0
+PERMISSION_RPLY	= 1
 
 # TCode 		= 6
 POLICY_UPDATE	= 0
@@ -105,13 +107,6 @@ POLICY_DEFAULT	= 3
 FLOW_RQST 		= 0
 FLOW_RPLY 		= 1
 
-# TCode 		= 8
-COMPLAINT_RQST	= 0
-COMPLAINT_INQ	= 1
-COMPLAINT_RPLY	= 2
-COMPLAINT_MITI	= 3
-
-PSH_ADDR      = 14
 
 VERSION_MEXP_BOX_IPV4 = (1, 3)
 VERSION_MEXP_BOX_IPV6 = (2, 4)
@@ -146,9 +141,9 @@ class Mexp(packet_base):
 		assert isinstance(payload, bytes)
 		self.packetLength = self.hdrLength + len(payload)
 
-		vtc = self.version << 4
-		vtc |= (self.code & 0xff)
-		s = struct.pack('!BBBBI', vtc,
+		vc = self.version << 4
+		vc |= (self.code & 0xff)
+		s = struct.pack('!BBBBI', vc,
 							self.tcode, 
 							self.packetLength, 
 							self.nextHeader,
