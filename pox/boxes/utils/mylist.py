@@ -43,11 +43,17 @@ class List(object):
 	def __setitem__(self, key, value):
 		self.records.__setitem__(key, value)
 
+	def __delitem__(self, key):
+		self.records.__delitem__(key)
+
 	def __contains__(self, key):
 		return self.exists(key)
 
 	def __str__(self):
 		return self.records.__str__()
+
+	def __repr__(self):
+		return self.__str__()
 
 	def msg(self, *args):
 		""" Shortcut for logging """
