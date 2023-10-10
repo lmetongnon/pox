@@ -27,31 +27,36 @@ class FlowHeader(object):
 	def _init(self, kwargs):
 		initHelper(self, kwargs)
 
-	def flip(self):
+	def flip(self) -> "FlowHeader":
 		if self.proto == 1:
 			if self.sport == self.dport:
-				return FlowHeader(proto=self.proto, sip=self.dip, sport=8, dip=self.sip, dport=0)
+				if self.sport != 0:
+					return FlowHeader(proto=self.proto, sip=self.dip, sport=self.sport, dip=self.sip, dport=self.dport)
+				else:
+					return FlowHeader(proto=self.proto, sip=self.dip, sport=8, dip=self.sip, dport=0)
 			else :
 				return FlowHeader(proto=self.proto, sip=self.dip, sport=0, dip=self.sip, dport=8)
 		else: 
-			FlowHeader(proto=self.proto, sip=self.dip, sport=self.dport, dip=self.sip, dport=self.sport)
+			return FlowHeader(proto=self.proto, sip=self.dip, sport=self.dport, dip=self.sip, dport=self.sport)
 
-	
 	def __str__(self):
-		return "%s %s[%d] => %s[%d]" % (self.proto, self.sip, self.sport, self.dip, self.dport)
+		return "%d %s:%d => %s:%d" % (self.proto, self.sip, self.sport, self.dip, self.dport)
 	
+	def __repr__(self):
+		return self.__str__()
+
 	def absoluteEqual(self, other):
-		if not isinstance(other. FlowHeader): return False
+		if not isinstance(other, FlowHeader): return False
 		return self.__eq__(other) or self.flip().__eq__(other)
 	
 	def toTuple(self, ip):
 		"""
-		This function returns the tuple of Ip in the flowheader (sip, dip) with always first member of the tuple the given ip in the parameter, we add the  
+		This function returns the tuple of Ip in the flowheader (sip, dip) with always first member of the tuple the given ip in the parameter, we add the port
 		"""
 		return (self.sip, self.dip), self.sport if ip == self.sip else (self.dip, self.sip), self.dport
 	
 	def __eq__(self, other):
-		if not isinstance(other. FlowHeader): return False
+		if not isinstance(other, FlowHeader): return False
 		if self.proto != other.proto : return False
 		if self.sip != other.sip : return False
 		if self.sport != other.sport : return False
@@ -79,7 +84,6 @@ class FlowHeader(object):
 			return None
 		return FlowHeader(proto=match.nw_proto, sip=match.nw_src, dip=match.nw_dst, sport=match.tp_src, dport=match.tp_dst)
 
-
 class Flow(FlowHeader):
 	def __init__(self, **kwargs):
 		FlowHeader.__init__(self)
@@ -97,5 +101,5 @@ class Flow(FlowHeader):
 		if self.byteCount != other.byteCount: return False
 		if self.flowSize != other.flowSize : return False
 		if self.duration != other.duration : return False
-		FlowHeader.__eq__(self, other)
+		return FlowHeader.__eq__(self, other)
 
