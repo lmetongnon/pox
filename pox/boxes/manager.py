@@ -14,7 +14,7 @@ from pox.boxes.utils.mylist import BoxList
 from pox.boxes.proto.activation import ZoneRequest, ZoneReply, RegistrationRequest, RegistrationReply
 from pox.boxes.proto.lookup import LookupRequest, LookupDelegateRequest, LookupReply, LookupDelegateReply
 from pox.boxes.proto.mexp import ACTIVATION, ALERT, LOOKUP, PERMISSION, POLICY, FLOW, SYNC, COMPLAINT
-from pox.boxes.proto.mexp import ZONE_RQST, ZONE_RPLY, REG_RQST, REG_RPLY, MESSAGE_ERR, PERMISSION_RQST, PERMISSION_RPLY, LOOKUP_RQST, LOOKUP_RPLY, LOOKUP_DL_RQST, LOOKUP_DL_RPLY
+from pox.boxes.proto.mexp import ZONE_RQST, ZONE_RPLY, REG_RQST, REG_RPLY, MESSAGE_ERR, PERMISSION_RQST, PERMISSION_RPLY, LOOKUP_RQST, LOOKUP_RPLY, LOOKUP_DL_RQST, LOOKUP_DL_RPLY, ALERT_NOTIF, ALERT_BRDT, ALERT_ACK, COMPLAINT_RQST, COMPLAINT_INQ, COMPLAINT_RPLY, COMPLAINT_MITI
 
 from socket import *
 
@@ -173,6 +173,10 @@ class MessageManager(object):
 		""" Shortcut for logging """
 		lg.info(*args)
 
+	def debug(self, *args):
+		""" Shortcut for logging """
+		lg.debug(*args)
+	
 	def err(self, *args):
 		""" Shortcut for logging """
 		lg.error(*args)
@@ -202,7 +206,7 @@ class Rmanager(MessageManager):
 	
 	def process(self, mexp:"Mexp", clientSocket):
 		if mexp.tcode not in (ACTIVATION, ALERT, LOOKUP, PERMISSION, POLICY, FLOW):
-			self.msg("Rbox does not manage %s tcode message %s" % mexp.tcode)
+			self.debug("Rbox does not manage %s tcode message %s" % mexp.tcode)
 			return
 		MessageManager.process(self, mexp, clientSocket)
 
@@ -216,7 +220,7 @@ class Rmanager(MessageManager):
 			return self.boxRecords[network]
 
 	def	processActivation(self, mexp:"Mexp", clientSocket):
-		self.msg("Rbox processActivation  (%s, %s)", mexp.tcode, mexp.code)
+		self.debug("Rbox processActivation  (%s, %s)", mexp.tcode, mexp.code)
 		if mexp.code == ZONE_RPLY:
 			if not mexp.payload.parsed:
 				self.err("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
@@ -230,7 +234,7 @@ class Rmanager(MessageManager):
 				self.zbox = (mexp.payload.boxIP, mexp.payload.port)
 				mexpReply = Mexp(version=mexp.version, tcode=mexp.tcode, code=REG_RQST, mid=mexp.mid+1, payload=RegistrationRequest(version=mexp.version, port=self.port, networks=networks, netmasks=netmasks))
 				clientSocket.close()
-				# self.msg("processActivation: %s" % (self.zbox,))
+				# self.debug("processActivation: %s" % (self.zbox,))
 				# socketBox = self.createSocket(self.zbox)
 				self.sendAndListen(mexpReply, self.zbox)
 		elif mexp.code == REG_RPLY:
@@ -245,42 +249,70 @@ class Rmanager(MessageManager):
 					sys.exit()
 
 	def	processAlert(self, mexp:"Mexp", clientSocket):
-		pass
+		if   mexp.code == ALERT_NOTIF:
+			if not mexp.payload.parsed:
+				self.debug("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
+			else:
+				code = self.box.getAlertNotification(mexp.payload)
+				if  code == ALERT_ACK:
+					mexpReply = Mexp(version=mexp.version, tcode=mexp.tcode, code=ALERT_ACK, mid=mexp.mid+1)
+					self.send(mexpReply, clientSocket)
+				elif  code == COMPLAINT_RQST:
+					mexp = Mexp(version=self.version, tcode=COMPLAINT, code=COMPLAINT_RQST, payload=ComplaintRequest(version=self.messageManager.version, boxIP=mexp.boxIP))
+					self.sendAndListen(mexp, zbox)
+		elif mexp.code == ALERT_ACK:
+			# Save the flowheader for now to check if the traffic is really stop if not send COMPLAINT
+			pass
+		elif mexp.code == ALERT_BRDT:
+			if not mexp.payload.parsed:
+				self.msg("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
+			else:
+				self.box.alertBroadcast(mexp.payload)
+				mexpReply = Mexp(version=mexp.version, tcode=mexp.tcode, code=ALERT_ACK, mid=mexp.mid+1)
+				self.send(mexpReply, clientSocket)
 	
 	def	processLookup(self, mexp:"Mexp", clientSocket) -> None:
 		if mexp.code == LOOKUP_RPLY:
 			if not mexp.payload.parsed:
-				self.msg("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
+				self.err("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
 			else:
-				if mexp.payload.boxIP != IP_ANY and mexp.payload.boxIP != IPAddr6("::"):
+				if mexp.payload.boxIP != IP_ANY and mexp.payload.boxIP != IPAddr6.UNDEFINED:
 					self.boxRecords[(mexp.payload.network, mexp.payload.netmask)] = (mexp.payload.boxIP, mexp.payload.port)
 	
 	def	processPermission(self, mexp:"Mexp", clientSocket):
 		if mexp.code == PERMISSION_RQST:
 			if not mexp.payload.parsed:
-				self.msg("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
+				self.err("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
 			else:
-				permReply = self.box.requestPermission(mexp.payload)
+				permReply = self.box.getPermissionRequest(mexp.payload)
 				mexpReply = Mexp(version=mexp.version, tcode=mexp.tcode, code=PERMISSION_RPLY, mid=mexp.mid+1, payload=permReply)
 				self.send(mexpReply, clientSocket)
 		elif  mexp.code == PERMISSION_RPLY:
 			if not mexp.payload.parsed:
-				self.msg("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
+				self.err("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
 			else:
-				self.box.replyPermission(mexp)
+				self.box.getPermissionReply(mexp.mid -1, mexp.payload)
 
 	def	processPolicy(self, mexp:"Mexp", clientSocket):
-		pass
+		raise NotImplementedError("processPolicy() not implemented")
 	
 	def	processFlow(self, mexp:"Mexp", clientSocket):
-		pass
+		raise NotImplementedError("processFlow() not implemented")
 
+	def	processComplaint(self, mexp:"Mexp", clientSocket):
+		if   mexp.code == COMPLAINT_INQ:
+			if not mexp.payload.parsed:
+				self.debug("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
+			else:
+				code, cplReply  = self.box.getComplaintInquery(mexp.payload)
+				mexpReply = Mexp(version=mexp.version, tcode=mexp.tcode, code=COMPLAINT_RPLY, mid=mexp.mid+1)
+	
 	def createMessage(self, event, tcode:int, code:int, payload:"packet_base", dstIP, listen=True):
 		mexp = Mexp(version=self.version, tcode=tcode, code=code, payload=payload)
 		self.box.setEvent(event, mexp.mid)
 		boxID = self.lookupBox(dstIP)
 		if boxID is None:
-			self.msg("createMessage No Box for %s" % (dstIP))
+			self.err("createMessage No Box for %s" % (dstIP))
 			return
 		if listen:
 			self.sendAndListen(mexp, boxID)
@@ -289,7 +321,7 @@ class Rmanager(MessageManager):
 
 class Zmanager(MessageManager):
 	def __init__(self, box, ip, port):
-		self.msg("__init__ ip=%s port=%s" % (ip, port))
+		self.debug("__init__ ip=%s port=%s" % (ip, port))
 		MessageManager.__init__(self,  box=box, ip=ip, port=port)
 
 		self.networks = set()
@@ -298,12 +330,12 @@ class Zmanager(MessageManager):
 
 	def process(self, mexp:"Mexp", clientSocket):
 		if mexp.tcode not in (ACTIVATION, ALERT, COMPLAINT, LOOKUP):
-			self.msg("Zbox does not manage (%s, %s) message %s" % (mexp.tcode, mexp.code))
+			self.err("Zbox does not manage (%s, %s) message %s" % (mexp.tcode, mexp.code))
 			return
 		MessageManager.process(self, mexp, clientSocket)
 
-	def check(self, network:"IPv4/Ipv6"):
-		self.msg("Zbox check (%s, %s)" % (network, self.networks))
+	def _networkExists(self, network:"IPv4/Ipv6"):
+		self.debug("Zbox networkExists (%s, %s)" % (network, self.networks))
 		return network in self.networks
 	
 	def lookupBox(self, network:"IPv4/Ipv6") -> ("IPv4/Ipv6", int):
@@ -315,7 +347,7 @@ class Zmanager(MessageManager):
 			if zbox is not None:
 				mexp = Mexp(version=self.version, tcode=LOOKUP, code=LOOKUP_DL_RQST, payload=LookupDelegateRequest(userIP=network))
 				self.sendAndListen(mexp=mexp, clientAddress=zbox, thread=False)
-				self.msg("Zbox lookupBox (%s, %s)" % (network, self.boxRecords[network]))
+				self.debug("Zbox lookupBox (%s, %s)" % (network, self.boxRecords[network]))
 				return self.boxRecords[network]
 			else:
 				mexp = Mexp(version=self.version, tcode=LOOKUP, code=LOOKUP_RQST, payload=LookupRequest(userIP=network))
@@ -323,14 +355,18 @@ class Zmanager(MessageManager):
 				self.sendAndListen(mexp=mexp, clientAddress=tbox, thread=False)
 				return self.lookupBox(network)
 
+	def broadcastAlert(self, alertMsg:"AlertBrdc") -> None:
+		for boxID in self.boxRecords:
+			self.sendAndListen(Mexp(version=mexp.version, tcode=mexp.tcode, code=ALERT_BRDT, payload=AlertBrdc()), boxID)
+
 	def	processActivation(self, mexp:"Mexp", clientSocket):
 		if mexp.code == REG_RQST:
 			# regPly = RegistrationReply(decision=True)
 			if not mexp.payload.parsed :
-				self.msg("Zbox can't parse (%s, %s)" % (mexp.tcode, mexp.code))
+				self.err("Zbox can't parse (%s, %s)" % (mexp.tcode, mexp.code))
 			else:
 				for net, mask in zip(mexp.payload.networks, mexp.payload.netmasks):
-					if self.check((net, mask)):
+					if self._networkExists((net, mask)):
 						regPly = RegistrationReply(version=mexp.version, decision=False)
 						mexpReply = Mexp(version=mexp.version, tcode=mexp.tcode, code=REG_RPLY, mid=mexp.mid+1, payload=regPly)
 						self.send(mexpReply, clientSocket)
@@ -342,10 +378,19 @@ class Zmanager(MessageManager):
 				mexpReply = Mexp(version=mexp.version, tcode=mexp.tcode, code=REG_RPLY, mid=mexp.mid+1, payload=regPly)
 				self.send(mexpReply, clientSocket)
 		else:
-			self.msg("Zbox does not manage code message %s" % mexp.code)
+			self.err("Zbox does not manage code message %s" % mexp.code)
 
 	def	processAlert(self, mexp:"Mexp", clientSocket):
-		pass
+		if   mexp.code == ALERT_ACK:
+			# Save the flowheader for now to check if the traffic is really stop if not send COMPLAINT
+			pass
+		elif mexp.code == ALERT_BRDT:
+			if not mexp.payload.parsed:
+				self.err("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
+			else:
+				self.broadcastAlert(mexp.payload)
+				mexpReply = Mexp(version=mexp.version, tcode=mexp.tcode, code=ALERT_ACK, mid=mexp.mid+1)
+				self.send(mexpReply, clientSocket)
 	
 	def	processComplaint(self, mexp:"Mexp", clientSocket):
 		pass
@@ -353,7 +398,7 @@ class Zmanager(MessageManager):
 	def	processLookup(self, mexp:"Mexp", clientSocket):
 		if   mexp.code == LOOKUP_RQST:
 			if not mexp.payload.parsed:
-				self.msg("Zbox can't parse (%s, %s)", mexp.tcode, mexp.code)
+				self.err("Zbox can't parse (%s, %s)", mexp.tcode, mexp.code)
 			else:
 				boxID 		= self.lookupBox(mexp.payload.userIP)
 				mexpReply 	= None
@@ -365,10 +410,10 @@ class Zmanager(MessageManager):
 				self.send(mexpReply, clientSocket)
 		elif mexp.code == LOOKUP_DL_RQST:
 			if not mexp.payload.parsed:
-				self.msg("Zbox can't parse (%s, %s)", mexp.tcode, mexp.code)
+				self.err("Zbox can't parse (%s, %s)", mexp.tcode, mexp.code)
 			else:
-				boxID 	= self.lookupBox(mexp.payload.userIP)
-				self.msg("Zbox Message %s and BoxID %s" % (mexp.code, boxID))
+				boxID 		= self.lookupBox(mexp.payload.userIP)
+				self.debug("Zbox Message %s and BoxID %s" % (mexp.code, boxID))
 				mexpReply 	= None
 				if boxID is not None:
 					net, mask = self.boxRecords.getNetwork(boxID)	
@@ -378,60 +423,58 @@ class Zmanager(MessageManager):
 				self.send(mexpReply, clientSocket)
 		elif mexp.code == LOOKUP_RPLY:
 			if not mexp.payload.parsed:
-				self.msg("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
+				self.err("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
 			else:
 				self.zBoxRecords[(mexp.payload.network, mexp.payload.netmask)] = (mexp.payload.boxIP, mexp.payload.port)
 		elif mexp.code == LOOKUP_DL_RPLY:
 			if not mexp.payload.parsed:
-				self.msg("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
+				self.err("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
 			else:
 				self.boxRecords[(mexp.payload.network, mexp.payload.netmask)] = (mexp.payload.boxIP, mexp.payload.port)
 
 class Tmanager(MessageManager):
-	def __init__(self, box, ip, port):
+	def __init__(self, box, ip, port, version, filename):
 		MessageManager.__init__(self,  box=box, ip=ip, port=port)
 		
-		self.msg("Tmanager on: %d", self.port)
+		self.debug("Tmanager listen on: %d", self.port)
 		self.networks = []
 		self.online = False
 
-		self._init()
+		self._init(version, filename)
 
-	def _init(self, filename = None):
+	def _init(self, version, filename):
+		self.debug("Tmanager init: %s %s", version, filename)
 		if filename is None:
 			filename = "pox/boxes/config/tbox.conf"
-			# 2000:db8::/32,2000:db8::1:1,15000
 		
 		with open (filename, 'r') as file:
-			data = yaml.safe_load(file)
-			if data["version"] == 4:
-				for info in data["records"]:
-					self.boxRecords[IPAddr.parse_cidr(info["network"])] = (IPAddr(info["ip"]), int(info["port"]))
-			elif data["version"] == 6:
-				for info in data[records]:
-					self.boxRecords[IPAddr.parse_cidr(info["network"])] = (IPAddr(info["ip"]), int(info["port"]))
-			# for line in file:
-			# 	self.msg("_init %s" % line)
-			# 	words = line.split(',')
-			# 	self.networks.append(
-			# 		IPAddr6.parse_cidr(words[0])
-			# 	)
-			# 	# self.boxRecords.add(
-			# 	# 	networks=IPAddr6.parse_cidr(words[0]), 
-			# 	# 	boxID=[IPAddr6(words[1]), int(words[2])]
-			# 	# )
-				# self.boxRecords[IPAddr6.parse_cidr(words[0])] = (IPAddr6(words[1]), int(words[2]))
+			address = yaml.safe_load(file)
+			for ip in address["ip"]:
+				if ip["version"] == 4 and int(version) == 4:
+					for data in ip["records"]:
+						for net in data["networks"]:
+							self.boxRecords[IPAddr.parse_cidr(net)] = (IPAddr(data["box_ip"]), int(data["port"]))
+					break
+				elif ip["version"] == 6 and int(version) == 6:
+					for data in ip["records"]:
+						for net in data["networks"]:
+							self.boxRecords[IPAddr6.parse_cidr(net)] = (IPAddr6(data["box_ip"]), int(data["port"]))
+					break
+				else:
+					import sys
+					self.err("Tbox does not manage %s version" % (version))
+					sys.exit(1)
 	
 	def process(self, mexp:"Mexp", clientSocket):
 		if mexp.tcode not in (ACTIVATION, ALERT, LOOKUP, SYNC):
-			self.msg("Tbox does not manage (%s, %s)  message" % (mexp.tcode, mexp.code))
+			self.err("Tbox does not manage (%s, %s)  message" % (mexp.tcode, mexp.code))
 			return
 		MessageManager.process(self, mexp, clientSocket)
 
 	def	processActivation(self, mexp:"Mexp", clientSocket):
 		if mexp.code == ZONE_RQST:
 			if not mexp.payload.parsed :
-				self.msg("Rbox can't parse (%s, %s)" % (mexp.tcode, mexp.code))
+				self.err("Rbox can't parse (%s, %s)" % (mexp.tcode, mexp.code))
 			else:
 				boxID = self.boxRecords[mexp.boxIP]
 				# for net in mexp.payload.networks:
@@ -445,7 +488,7 @@ class Tmanager(MessageManager):
 				# 	else:
 				# 		boxID = None
 				# 		break
-				self.msg("processActivation %s" % (boxID,))
+				self.err("processActivation %s" % (boxID,))
 				if boxID is None:
 					regPly = ZoneReply(version=mexp.version)
 				else:
@@ -458,7 +501,7 @@ class Tmanager(MessageManager):
 	def	processLookup(self, mexp:"Mexp", clientSocket):
 		if mexp.code == LOOKUP_RQST :
 			if not mexp.payload.parsed:
-				self.msg("Tbox can't parse (%s, %s)", mexp.tcode, mexp.code)
+				self.err("Tbox can't parse (%s, %s)", mexp.tcode, mexp.code)
 			else:
 				boxID 	= self.boxRecords[mexp.payload.userIP]
 				net, mask = self.boxRecords.getNetwork(boxID)
