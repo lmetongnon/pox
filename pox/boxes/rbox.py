@@ -273,7 +273,7 @@ class Rbox(object):
 		else:
 			# incoming Communication
 			# Check distributed scanning attacks
-			if self.detection.scanDetection(flowHeader.sip, self.flowList):
+			if self.detection.scanDetection(deviceIP=flowHeader.sip, flowList=self.flowList):
 				log.debug("handle scan pattern attacks detect from %s" % flowHeader.sip)
 				self.alertList.add(flowHeader.dip, Alert(Alert.SCAN, flowHeader))
 

@@ -62,7 +62,7 @@ class FlowCollector(object):
 		self.check()
 
 	def check(self):
-		self.box.detection.check(self.dstFlowList)
+		self.box.detection.process(self.dstFlowList)
 		# for ip in self.dstFlowList.ipFlows.keys():
 		# 	log.debug("check %s " % (ip))
 		# 	if self.box.isOurDevice(ip):

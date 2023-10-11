@@ -13,7 +13,7 @@ class AbstractDetection(object):
 	def __init__(self, box):
 		self.box = box
 	
-	def process(self, flowHeader, flowList, **kwargs):
+	def process(self, **kwargs):
 		raise NotImplementedError("process() not implemented")		
 
 class Detection(AbstractDetection):
@@ -21,7 +21,7 @@ class Detection(AbstractDetection):
         The Detection object of the box. It manage all the detection technique you want to implement inside the system
     '''
 	MAXFLOWPERDEVICE					= 5
-	THRESHOLDHORIZONTALSCANDETECTION	= 20
+	THRESHOLDSCANDETECTION				= 20
 	THRESHOLDVERTICALSCANDETECTION		= 20
 	THRESHOLDDOSTHROUPUT 				= 200
 	THRESHOLDDDOSDURATION 				= 15
@@ -55,7 +55,7 @@ class Detection(AbstractDetection):
 		else:
 			return False
 
-	def scanDetection(self, deviceIP, flowList, **kwargs):
+	def scanDetection(self, **kwargs):
 		"""
 		Check if a suspicious device is scanning a network.
 
@@ -67,16 +67,18 @@ class Detection(AbstractDetection):
 		@rtype: bool
 		@return: Send true If a device is behaving strangely by having contact with too much devices. if we find a scanning pattern (#pkts < threshold or #connection_duration too short)
 		"""
+		deviceIP = None if 'deviceIP' not in kwargs else kwargs['deviceIP']
+		flowList = None if 'flowList' not in kwargs else kwargs['flowList']
 		log.debug("scanDetection deviceIP: %s" % (deviceIP))
 		# log.debug("scanDetection deviceIP: %s flowList: %s" % (deviceIP, flowList))
 		deviceSet = flowList.ipSet
 		deviceFlow = flowList.ipFlows
-		if not deviceIP in deviceSet:
+		if deviceIP not in deviceSet:
 			return
 		else:
 			# Horizontal scan if one external have more than threshold connection
-			if len(deviceSet[deviceIP]) > Detection.THRESHOLDHORIZONTALSCANDETECTION:
-				self.box.alertList.add(deviceIP, Alert(Alert.SCAN, FlowHeader.fromMatch(flow.match), flow))
+			if len(deviceSet[deviceIP]) > Detection.THRESHOLDSCANDETECTION:
+				self.box.alertList.add(deviceIP, Alert(Alert.SCAN, FlowHeader(sip=deviceIP), None))
 				return
 			else:
 				# Vertical scan when a suspicious device had connection with many port of a particular contacted device.
@@ -84,29 +86,13 @@ class Detection(AbstractDetection):
 					if len(deviceSet[deviceIP][contactedDeviceIP]) > Detection.THRESHOLDVERTICALSCANDETECTION:
 						return True
 				return False
-		# Vertical scan (Very noisy)
-		# deviceFlow = flowList.ipFlows
-		# suspicious[]
-		# if not deviceIP in deviceFlow:
-		# 	return False
-		# else:
-		# 	for flowheader in deviceFlow[deviceIP]:
-		# 		ips, dport = flowheader.toTuple(deviceIP)
-		# 		if dport < 1024:
-		# 			suspicious.add(ips)
-		# ipSet = flowList.ipSet
-		# suspectSet = Counter()
-		# for ip in ipSet:
-		# 	if len(ipSet[ip]) > MAXFLOWPERDEVICE:
-		# 		suspectSet.add(deviceIP) 
-		# if suspectSet is None: 
-		# 	return False
-		# if len(suspectSet) > 
 
-	def dosDetection(self, deviceIP, flowList, **kwargs):
+	def dosDetection(self, **kwargs):
 		"""
 		Check if a our device is under a dos attack.
-
+		
+		@type kwargs: dictionary
+		@param kwargs: Our device IP
 		@type deviceIP: IPAddr/IPAddr6
 		@param deviceIP: Our device IP
 		@type flowList: Flowlist
@@ -115,6 +101,10 @@ class Detection(AbstractDetection):
 		@rtype: (bool, of.match)
 		@return: Send (true, flow) if the throughput coming to our devices is above the threshold (#pkts size/flow duration > threshold) and (false, None) when nothing is detected
 		"""
+		deviceIP = None if 'deviceIP' not in kwargs else kwargs['deviceIP']
+		flowList = None if 'flowList' not in kwargs else kwargs['flowList']
+		if deviceIP is None or flowList is None:
+			log.error("dosDetection device ip: %s, flowList: %s", deviceIP, flowList)
 		outstr = "["
 		for flh in flowList:
 				outstr += str(flh)+" "
@@ -123,8 +113,6 @@ class Detection(AbstractDetection):
 		outstr +=']'
 		log.debug("dosDetection deviceIP: %s flowList: %s" % (deviceIP, outstr))
 		found = False
-		# if not self.box.isOurDevice(deviceIP):
-		# 	return found
 		for flowHeader in flowList:
 			flow = flowList[flowHeader]
 			if len(flow.actions) > 0:
@@ -136,7 +124,7 @@ class Detection(AbstractDetection):
 				found = True
 		return found
 
-	def ddosDetection(self, deviceIP, flowList, **kwargs):
+	def ddosDetection(self, **kwargs):
 		"""
 		Check if a our device is under a ddos attack.
 
@@ -148,6 +136,10 @@ class Detection(AbstractDetection):
 		@rtype: (bool, of.match)
 		@return: Send (true, flow) if the throughput coming to our devices is above the threshold (#pkts size/flow duration > threshold) and (false, None) when nothing is detected
 		"""
+		deviceIP = None if 'deviceIP' not in kwargs else kwargs['deviceIP']
+		flowList = None if 'flowList' not in kwargs else kwargs['flowList']
+		if deviceIP is None or flowList is None:
+			log.error("ddosDetection device ip: %s, flowList: %s", deviceIP, flowList)
 		outstr = "["
 		for flh in flowList:
 				outstr += str(flh)+" "
@@ -178,32 +170,21 @@ class Detection(AbstractDetection):
 			found = True
 		return found
 
-	def check(self, flowList, **kwargs):
+	def process(self, flowList, **kwargs):
 		import time
 		for ip in list(flowList.ipFlows.keys()):
 			log.debug("check %s " % (ip))
 			if not self.box.isOurDevice(ip):
 				continue
 			
-			# if self.scanDetection(ip, flowList):
+			# if self.scanDetection(deviceIP=ip, flowList=flowList):
 			# 	log.debug("Scan detected for ip: %s" % (ip))
 
 			# if self.policyComplianceDetection(ip, [], flowList.ipSet):
 			# 	log.debug("Policy Compliance detected for ip: %s" % (ip))
 
-			if self.ddosDetection(ip, flowList.ipFlows[ip]):
+			if self.ddosDetection(deviceIP=ip, flowList=flowList.ipFlows[ip]):
 				log.debug("DDoS detected on ip: %s at %d" % (ip, time.time()))
 
-			if self.dosDetection(ip, flowList.ipFlows[ip]):
+			if self.dosDetection(deviceIP=ip, flowList=flowList.ipFlows[ip]):
 				log.debug("DoS detected on ip: %s at %d" % (ip, time.time()))
-
-		# if not self.policyComplianceDetection(flowheader.dip, (flowHeader.proto, flowHeader.dport), flowList):
-		# 	return Alert.COMPLIANCE
-		# elif scanDetection(flowheader.sip, flowList):
-		# 	return Alert.SCAN
-		# elif self.dosDetection(flowheader.dip, flowList):
-		# 	return Alert.DOS
-		# elif self.ddosDetection(flowheader.dip, flowList):
-		# 	return Alert.DDOS
-		# else :
-		# 	return None
