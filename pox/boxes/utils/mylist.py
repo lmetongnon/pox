@@ -1,13 +1,14 @@
 import logging
 import pox.openflow.libopenflow_01 as of
 
-from pox.boxes.utils.tools import Permission
+from pox.boxes.utils.tools import Permission, Policy, Alert
 from pox.boxes.utils.flow import FlowHeader
-lg = logging.getLogger('list')
+log = logging.getLogger('list')
 
 from pox.lib.addresses import IPAddr, IPAddr6
 
-import time
+from queue import PriorityQueue
+import time, copy
 
 class List(object):
 	def __init__(self):
@@ -16,56 +17,63 @@ class List(object):
 	def add(self, key, value) -> None:
 		self.records[key] = value
 
-	def delete(self, key):
-		self.records.pop(key, None)
+	def delete(self, key) -> object:
+		return self.records.pop(key, None)
 
-	def exists(self, key):
+	def exists(self, key) -> bool:
 		return key in self.records
 
-	def update(self, records):
+	def update(self, records) -> None:
 		self.records.update(records)
 
-	def keys(self):
+	def keys(self) -> object:
 		return self.records.keys()
 
-	def values(self):
+	def values(self) -> [object]:
 		return [self[key] for key in self.keys()]
+	
+	def items(self) -> "view":
+		return self.records.items()
 
-	def __len__(self):
+	def __len__(self) -> int:
 		return self.records.__len__()
 
 	def __iter__(self):
 		return self.records.__iter__()
 
-	def __getitem__(self, key):
+	def __getitem__(self, key) -> object :
 		return self.records.get(key, None)
   
-	def __setitem__(self, key, value):
+	def __setitem__(self, key, value) -> None:
 		self.records.__setitem__(key, value)
 
-	def __delitem__(self, key):
+	def __delitem__(self, key) -> None:
 		self.records.__delitem__(key)
 
-	def __contains__(self, key):
+	def __contains__(self, key) -> bool:
 		return self.exists(key)
 
-	def __str__(self):
+	def __str__(self) -> str:
 		return self.records.__str__()
 
-	def __repr__(self):
+	def __repr__(self) -> str:
 		return self.__str__()
 
-	def msg(self, *args):
+	def info(self, *args) -> None:
 		""" Shortcut for logging """
-		lg.info(*args)
+		log.info(*args)
+	
+	def debug(self, *args) -> None:
+		""" Shortcut for logging """
+		log.debug(*args)
+	
+	def err(self, *args) -> None:
+		""" Shortcut for logging """
+		log.error(*args)
 
-	def err(self, *args):
+	def warn(self, *args) -> None:
 		""" Shortcut for logging """
-		lg.error(*args)
-
-	def warn(self, *args):
-		""" Shortcut for logging """
-		lg.warning(*args)
+		log.warning(*args)
 
 class BoxList(List):
 	'''
@@ -86,7 +94,7 @@ class BoxList(List):
 		@rtype: None
 		@return: None
 		"""
-		self.msg("add len: %d" % len(List.keys(self)))
+		self.info("add len: %d" % len(List.keys(self)))
 		if not isinstance(boxID, tuple):
 			self.err("add %s" % boxID)
 			return
@@ -120,12 +128,12 @@ class BoxList(List):
 		@rtype: None
 		@return: None
 		"""
-		self.msg("_check : %s %s" % (network, boxIP))
+		self.info("_check : %s %s" % (network, boxIP))
 		if isinstance(boxIP, IPAddr) and not isinstance(network, IPAddr):
-			self.msg("network address %s is not ipv4" % network)
+			self.info("network address %s is not ipv4" % network)
 			return
 		elif isinstance(boxIP, IPAddr6) and not isinstance(network, IPAddr6):
-			self.msg("network address %s is not ipv6" % network)
+			self.info("network address %s is not ipv6" % network)
 			return
 
 	def exists(self, network):
@@ -146,17 +154,17 @@ class BoxList(List):
 		return False
 
 	def __getitem__(self, network):
-		self.msg("__getitem__ len: %d" % len(List.keys(self)))
+		self.info("__getitem__ len: %d" % len(List.keys(self)))
 		if List.exists(self, network):
 			return List.__getitem__(self, network)
 		for net in List.keys(self):
-			self.msg("__getitem__ %s" % (net,))
+			self.info("__getitem__ %s" % (net,))
 			if network.in_network(net):
 				return List.__getitem__(self, net)
 		return None
 
 	def __setitem__(self, networks, boxID):
-		self.msg("__setitem__ len: %d" % len(List.keys(self)))
+		self.info("__setitem__ len: %d" % len(List.keys(self)))
 		if not isinstance(boxID, tuple):
 			self.err("__setitem__ %s" % boxID)
 			return
@@ -168,13 +176,13 @@ class BoxList(List):
 		# else:
 		self._check(networks[0], boxID[0])
 		List.__setitem__(self, networks, boxID)
-		self.msg("__setitem__ after len: %d" % len(List.keys(self)))
+		self.info("__setitem__ after len: %d" % len(List.keys(self)))
 
 	def getNetwork(self, BoxID):
 		for net in List.keys(self):
 			if self.__getitem__(net) == BoxID:
 				return net
-		return None
+		return None, None
 
 class PermissionList(List):
 	'''
@@ -183,12 +191,37 @@ class PermissionList(List):
 	def __init__(self):
 		List.__init__(self)
 
-	def add(self, flowHeader, permission):
+	def add(self, flowHeader, permission, bidirectionnal=True):
 		if not isinstance(flowHeader, FlowHeader) or not isinstance(permission, Permission):
 			self.err("add %s %s" % flowHeader, permission)
 			return
 		List.add(self, flowHeader, permission)
+		if bidirectionnal:
+			List.add(self, flowHeader.flip(), copy.deepcopy(permission))
 
+	def delete(self, flowHeader) -> object:
+		if not isinstance(flowHeader, FlowHeader):
+			self.err("delete %s" % flowHeader)
+			return
+		return List.delete(self, flowHeader)
+
+
+	def expire(self, flowHeader, bidirectionnal=True) -> object:
+		self.debug("expire flowheader: %s list: %s " % (flowHeader, self))
+		import time
+		if not isinstance(flowHeader, FlowHeader):
+			self.err("expire %s" % flowHeader)
+			return
+		stop = time.time()
+		if not bidirectionnal:
+			permission = List.__getitem__(self, flowHeader)
+			permission.stop = stop
+		else:
+			permission = List.__getitem__(self, flowHeader)
+			permission.stop = stop
+			permission = List.__getitem__(self, flowHeader.flip())
+			permission.stop = stop
+	
 	def __getitem__(self, flowHeader):
 		return List.__getitem__(self, flowHeader)
 
@@ -201,6 +234,16 @@ class PermissionList(List):
 		if not isinstance(flowHeader, FlowHeader):
 			self.err("__contains__ %s %s" % flowHeader)
 		return List.__contains__(self, flowHeader)
+
+	def check(self) -> None :
+		"""
+		We check the list of permission with the current time to remove expired device's permission 
+		"""
+		for key in list(self.keys()):
+			self.debug("PermissionList check key: %s " % (key))
+			self.debug("PermissionList check key: %s elasped: %d duration: %d" % (key, (time.time() - self.__getitem__(key).timestamp), self.__getitem__(key).duration))
+			if (time.time() - self.__getitem__(key).stop) >= 0:
+				self.delete(key)
 
 class FlowList(object):
 	'''
@@ -226,16 +269,18 @@ class FlowList(object):
 			self.ipFlows[sip] = List()
 		flowheader = FlowHeader.fromMatch(flow.match)
 		if flowheader not in self.ipFlows[sip]:
-			self.ipFlows[sip][flowheader].add(flow)
+			self.ipFlows[sip][flowheader] = flow
 	
 	def __str__(self):
-		msg ='['
-		msg += str(self.timestamp)+" "
-		msg += str(self.ipSet)+" "
+		outstr ='[ timestamp: '
+		outstr += str(self.timestamp)+" set: "
+		outstr += str(self.ipSet)+" flow: "
 		for ip in self.ipFlows:
-			msg += str(self.ipFlows[ip])+" "
-		msg+=']'
-		return msg 
+			for flh in self.ipFlows[ip]:
+				outstr += str(flh)+" "
+				outstr += self.ipFlows[ip][flh].show()+"\n"
+		outstr+=']'
+		return outstr 
 
 	def add(self, ip, flow:"Flow"):
 		# if not isinstance(flow, Flow):
@@ -244,3 +289,53 @@ class FlowList(object):
 		if not ipSet[ip]:
 			self.ipSet[ip] = set()
 		# if self.ipSet[ip]:
+
+class BlackList(object):
+
+	def __init__(self):
+		self.set = set()
+		self.queue = PriorityQueue()
+
+	def add(self, timestamp, addr) -> None:
+		self.set.add(addr)
+		self.queue.put((timestamp, addr))
+
+	def __contains__(self, addr) -> bool:
+		return addr in self.set
+
+	def check(self) -> None:
+		while not self.queue.empty():
+			pair = self.queue.get()
+			log.debug("BlackList check Address: %s Priority: %s" % (pair[1], pair [0]))
+			if time.time() < pair[0]:
+				self.queue.put(pair)
+				return
+			self.set.remove(pair[1])
+
+class AlertList(List):
+	
+	def check(self, box) -> None :
+		"""
+		We check the list of the alert and started mitigation process
+		"""
+		for address in list(self.keys()):
+			alert = self.delete(address)
+			self.debug("AlertList check address: %s alert: %s" % (address, alert))
+			myDevice = box.isOurDevice(address)
+			self.debug("address %s and mydevice: %s" % (address, box.isOurDevice(address)))
+			if isinstance(alert.flowHeader, list):
+				for flowHeader, flow in zip(alert.flowHeader, alert.flow):
+					box.mitigation.process(myDevice=myDevice, alert=Alert(alert.type, flowHeader, flow))
+					if flowHeader in box.permissionList:
+						box.permissionList.expire(flowHeader)
+			else:
+				box.mitigation.process(myDevice=myDevice, alert=alert)
+				if alert.flowHeader in box.permissionList:
+					box.permissionList.expire(alert.flowHeader)
+
+class PolicyList(List):
+	def __getitem__(self, address) -> object :
+		obj = self.records.get(address, None)
+		if obj is None:
+			return Policy(address)
+		return obj
