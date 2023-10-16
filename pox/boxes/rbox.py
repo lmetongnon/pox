@@ -10,7 +10,7 @@ from pox.boxes.utils.mylist import List, PermissionList, FlowList, PolicyList, A
 from pox.boxes.utils.flow import FlowHeader, Flow
 from pox.boxes.proto.permission import PermissionRequest, PermissionReply
 from pox.boxes.proto.alert import AlertNotification, AlertBrdc, AlertAck
-from pox.boxes.proto.mexp import PERMISSION, PERMISSION_RQST, PERMISSION_RPLY, ALERT, ALERT_NOTIF, ALERT_ACK
+from pox.boxes.proto.mexp import PERMISSION, PERMISSION_RQST, PERMISSION_RPLY, ALERT, ALERT_NOTIF, ALERT_ACK, ALERT_BRDT
 from pox.boxes.utils.detection import Detection
 from pox.boxes.utils.mitigation import Mitigation
 from pox.boxes.utils.tools import Permission, Alert
@@ -273,7 +273,7 @@ class Rbox(object):
 		else:
 			# incoming Communication
 			# Check distributed scanning attacks
-			if self.detection.scanDetection(deviceIP=flowHeader.sip, flowList=self.flowList):
+			if self.detection.scanDetection(maliciousIP=flowHeader.sip, flowList=self.flowList):
 				log.debug("handle scan pattern attacks detect from %s" % flowHeader.sip)
 				self.alertList.add(flowHeader.dip, Alert(Alert.SCAN, flowHeader))
 
@@ -290,6 +290,12 @@ class Rbox(object):
 		@type flowHeader: FlowHeader
 		@param flowHeader: The flow header of the incoming message
 		"""
+		if flowHeader.sip in self.addrBlacklist:
+			# COMPLAINT
+			log.debug("outgoingMessage drop message cause %s inside blacklist" % flowHeader)
+			self.drop(event, Rbox.DEFAULT_ALERT_DROP_DURATION)
+			return
+
 		if self._unreachableTraffic(flowHeader):
 			flowHeader = flowHeader.flip()
 			log.debug("outgoingMessage Unreacheable Reply stop %s" % flowHeader)
@@ -418,13 +424,19 @@ class Rbox(object):
 		log.debug("getAlertNotification %s" % altNotif)
 		# Check if I'm sending this traffic, stop and send ack
 		flowHeader = FlowHeader(proto=altNotif.proto, sip=altNotif.sip, dip=altNotif.dip, sport=altNotif.sport, dport=altNotif.dport)
-		if self._checkTrafficExists(flowHeader):
-			self.alertList.add(altNotif.dip, Alert(altNotif.type, flowHeader, None, altNotif.duration) )
+		if self._checkTrafficExists(altNotif.type, flowHeader):
+			if altNotif.type == Alert.SCAN:
+				self.alertList.add(altNotif.sip, Alert(altNotif.type, flowHeader, None, altNotif.duration) )
+			else:
+				self.alertList.add(altNotif.dip, Alert(altNotif.type, flowHeader, None, altNotif.duration) )
 			return ALERT_ACK
 		else:
 			return COMPLAINT_RQST
 
-	def _checkTrafficExists(self, flowHeader:"FlowHeader") -> bool:
+	def broadcastAlert(self, alertMessage):
+		return
+	
+	def _checkTrafficExists(self, trafficType:"Alert.type", flowHeader:"FlowHeader") -> bool:
 		return True
 		# self.flowList.ipFlows[]
 	

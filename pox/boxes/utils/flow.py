@@ -35,7 +35,7 @@ class FlowHeader(object):
 				else:
 					return FlowHeader(proto=self.proto, sip=self.dip, sport=8, dip=self.sip, dport=0)
 			else :
-				return FlowHeader(proto=self.proto, sip=self.dip, sport=0, dip=self.sip, dport=8)
+				return FlowHeader(proto=self.proto, sip=self.dip, sport=0, dip=self.sip, dport=0)
 		else: 
 			return FlowHeader(proto=self.proto, sip=self.dip, sport=self.dport, dip=self.sip, dport=self.sport)
 

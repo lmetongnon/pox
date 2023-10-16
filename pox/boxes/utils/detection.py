@@ -2,7 +2,7 @@ import logging
 import pox.openflow.libopenflow_01 as of
 
 from pox.lib.util import initHelper
-from pox.boxes.utils.tools import Permission, Alert
+from pox.boxes.utils.tools import Permission, Alert, Policy
 from pox.boxes.utils.flow import FlowHeader
 log = logging.getLogger('detection')
 
@@ -21,7 +21,7 @@ class Detection(AbstractDetection):
         The Detection object of the box. It manage all the detection technique you want to implement inside the system
     '''
 	MAXFLOWPERDEVICE					= 5
-	THRESHOLDSCANDETECTION				= 20
+	THRESHOLDSCANDETECTION				= 10
 	THRESHOLDVERTICALSCANDETECTION		= 20
 	THRESHOLDDOSTHROUPUT 				= 200
 	THRESHOLDDDOSDURATION 				= 15
@@ -67,23 +67,24 @@ class Detection(AbstractDetection):
 		@rtype: bool
 		@return: Send true If a device is behaving strangely by having contact with too much devices. if we find a scanning pattern (#pkts < threshold or #connection_duration too short)
 		"""
-		deviceIP = None if 'deviceIP' not in kwargs else kwargs['deviceIP']
+		maliciousIP = None if 'maliciousIP' not in kwargs else kwargs['maliciousIP']
 		flowList = None if 'flowList' not in kwargs else kwargs['flowList']
-		log.debug("scanDetection deviceIP: %s" % (deviceIP))
-		# log.debug("scanDetection deviceIP: %s flowList: %s" % (deviceIP, flowList))
+		log.debug("scanDetection malicious IP: %s, flowList: %s", maliciousIP, flowList.ipSet)
+		# log.debug("scanDetection maliciousIP: %s flowList: %s" % (maliciousIP, flowList))
 		deviceSet = flowList.ipSet
-		deviceFlow = flowList.ipFlows
-		if deviceIP not in deviceSet:
+		if maliciousIP not in deviceSet:
+			log.debug("scanDetection malicious IP not in set %s", maliciousIP not in deviceSet)
 			return
 		else:
 			# Horizontal scan if one external have more than threshold connection
-			if len(deviceSet[deviceIP]) > Detection.THRESHOLDSCANDETECTION:
-				self.box.alertList.add(deviceIP, Alert(Alert.SCAN, FlowHeader(sip=deviceIP), None))
+			log.debug("scanDetection malicious IP %s cond0: %s", maliciousIP, len(deviceSet[maliciousIP]) > Detection.THRESHOLDSCANDETECTION)
+			if len(deviceSet[maliciousIP]) > Detection.THRESHOLDSCANDETECTION:
+				self.box.alertList.add(maliciousIP, Alert(Alert.SCAN, FlowHeader(sip=maliciousIP), None, Policy.DEFAULT_POLICY['victim_mitigation']['scan']))
 				return
 			else:
 				# Vertical scan when a suspicious device had connection with many port of a particular contacted device.
-				for contactedDeviceIP in deviceSet[deviceIP]:
-					if len(deviceSet[deviceIP][contactedDeviceIP]) > Detection.THRESHOLDVERTICALSCANDETECTION:
+				for contactedDeviceIP in deviceSet[maliciousIP]:
+					if len(deviceSet[maliciousIP][contactedDeviceIP]) > Detection.THRESHOLDVERTICALSCANDETECTION:
 						return True
 				return False
 

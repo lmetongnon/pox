@@ -7,7 +7,7 @@ from pox.lib.util import initHelper
 from pox.lib.addresses import IPAddr, IPAddr6
 from pox.boxes.proto.mexp import Mexp, ALERT, ALERT_NOTIF, ALERT_BRDT
 from pox.boxes.utils.mylist import BoxList
-from pox.boxes.utils.tools import Alert
+from pox.boxes.utils.tools import Alert, Policy
 from pox.boxes.proto.alert import AlertNotification
 
 class AbstractMitigation(object):
@@ -38,18 +38,35 @@ class Mitigation(AbstractMitigation):
 		raise NotImplementedError("complianceMitigation() not implemented")
 	
 	def scanMitigation(self, **kwargs):
+		import time
 		log.debug("scanMitigation %s" % (kwargs))
 		alert = None if 'alert' not in kwargs else kwargs['alert']
-		flowlist = None if 'flowlist' not in kwargs else kwargs['flowlist']
-		myDevice = None if 'mydevice' not in kwargs else kwargs['myDevice']
-		policy = self.box.policyList[alert.flowHeader.dip]
-		if myDevice:
-			import time
-			self.box.addrBlacklist.add(time.time() + policy.perpetrator_mitigation['scan'], alert.flowHeader.sip)
-		else:
-			if flowlist:
-				for flow in flowlist[alert.flowHeader.sip]:
-					self.box.dropFlow(flow, policy.victim_mitigation['scan'])
+		myDevice = None if 'myDevice' not in kwargs else kwargs['myDevice']
+		# flowList = None if self.box.flowCollector is None else self.box.flowCollector.srcFlowList.ipFlows
+		flowList = self.box.flowList.ipFlows
+		if flowList is None:
+			log.error("scanMitigation no flowList: %s and collector: %s", flowList, self.box.flowCollector)
+			return
+		if alert.flowHeader.sip not in flowList:
+			log.error("scanMitigation no flow for malicious IP %s", alert.flowHeader.sip)
+		if myDevice is None:
+			log.error("scanMitigation, we don't get the device affiliation (victim or perpetrator)")
+
+		if not myDevice:
+			box = self.box.messageManager.lookupBox(alert.flowHeader.sip)
+			mexp =  Mexp(version=self.box.messageManager.version, tcode=ALERT, code=ALERT_NOTIF, payload=AlertNotification(version=self.box.messageManager.version, proto=alert.flowHeader.proto, type=Alert.SCAN, sip=alert.flowHeader.sip, duration=Policy.DEFAULT_POLICY['perpetrator_mitigation']['scan']))
+			self.box.messageManager.sendAndListen(mexp, box)
+			self.box.broadcastAlert(mexp.payload)
+		self.box.addrBlacklist.add(time.time() + alert.duration, alert.flowHeader.sip)
+		for flowHeader in flowList[alert.flowHeader.sip]:
+			if flowHeader.sip != alert.flowHeader.sip:
+				continue
+			self.box.dropFlow(flowHeader, flowList[alert.flowHeader.sip][flowHeader], alert.duration)
+			if flowHeader in self.box.permissionList:
+				self.box.permissionList.expire(flowHeader)
+			# if flowList:
+			# 	for flow in flowList[alert.flowHeader.sip]:
+			# 		self.box.dropFlow(flow, policy.victim_mitigation['scan'])
 	
 	def dosMitigation(self, **kwargs):
 		log.debug("dosMitigation %s" % (kwargs))

@@ -25,26 +25,18 @@ class FlowCollector(object):
 		if self.box.flowList.timeout != -1 or time.time() > self.box.flowList.timestamp + self.box.flowList.timeout:
 			self.box.flowList.__init__()
 			for key in self.srcFlowList.ipSet.keys():
-				if not self.box.isOurDevice(key):
-					continue
 				self.box.flowList.ipSet[key] = copy.deepcopy(self.srcFlowList.ipSet[key])
 
 			for key in self.srcFlowList.ipFlows.keys():
-				if not self.box.isOurDevice(key):
-					continue
 				self.box.flowList.ipFlows[key] = copy.deepcopy(self.srcFlowList.ipFlows[key])
 		else:
 			for key in self.srcFlowList.ipSet.keys():
-				if not self.box.isOurDevice(key):
-					continue
 				if key in self.box.flowList.ipSet.keys():
 					self.box.flowList.ipSet[key].update(self.srcFlowList.ipSet[key])
 				else:
 					self.box.flowList.ipSet[key] = copy.deepcopy(self.srcFlowList.ipSet[key])
 
 			for key in self.srcFlowList.ipFlows.keys():
-				if not self.box.isOurDevice(key):
-					continue
 				if key in self.box.flowList.ipFlows.keys():
 					self.box.flowList.ipFlows[key].update(self.srcFlowList.ipFlows[key])
 				else:
@@ -63,15 +55,3 @@ class FlowCollector(object):
 
 	def check(self):
 		self.box.detection.process(self.dstFlowList)
-		# for ip in self.dstFlowList.ipFlows.keys():
-		# 	log.debug("check %s " % (ip))
-		# 	if self.box.isOurDevice(ip):
-		# 		continue
-		# 	maliciousFlow = self.box.detection.dosDetection(ip, self.dstFlowList.ipFlows[ip])
-		# 	if maliciousFlow is not None:
-		# 		self.box.alertList.add(ip, Alert(Alert.DOS, maliciousFlow))
-		# 	maliciousFlow = self.box.detection.ddosDetection(ip, self.dstFlowList.ipFlows[ip])
-		# 	if maliciousFlow is not None:
-		# 		self.box.alertList.add(ip, Alert(Alert.DDOS, maliciousFlow))
-		# log.debug("SFlowList check %s " % (self.srcFlowList))
-		# log.debug("DFlowList check %s " % (self.dstFlowList))
