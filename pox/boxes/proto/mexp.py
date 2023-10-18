@@ -68,10 +68,13 @@ Code
 ACK 			= 0
 MESSAGE_ERR		= 1
 
-# TCode			= 1
-ALERT_NOTIF		= 0
-ALERT_ACK		= 1
-ALERT_BRDT		= 2
+# TCode				= 1
+ALERT_NOTIF			= 0
+ALERT_ACK			= 1
+ALERT_BRDT_RQST		= 2
+ALERT_BRDT_RPLY 	= 3
+ALERT_DL_BRDT_RQST 	= 4
+ALERT_DL_BRDT_RPLY 	= 5
 
 # TCode			= 2
 COMPLAINT_RQST	= 0
@@ -277,11 +280,14 @@ class Mexp(packet_base):
 		self.next = func(version=version, raw=self.next, prev=self)
 
 	def parseAlert(self, version:int):
-		from pox.boxes.proto.alert import AlertNotification, AlertBrdc, AlertAck
+		from pox.boxes.proto.alert import AlertNotification, AlertAck, AlertBrdcRqst, AlertBrdcRply, AlertDelegateBrdcRqst, AlertDelegateBrdcRply
 		switcher= {
 			ALERT_NOTIF: AlertNotification,
-			ALERT_BRDT: AlertBrdc,
-			ALERT_ACK: AlertAck
+			ALERT_ACK: AlertAck,
+			ALERT_BRDT_RQST: AlertBrdcRqst,
+			ALERT_BRDT_RPLY: AlertBrdcRply,
+			ALERT_DL_BRDT_RQST: AlertDelegateBrdcRqst,
+			ALERT_DL_BRDT_RPLY: AlertDelegateBrdcRply
 		}
 		func = switcher.get(self.code)
 		self.next = func(version=version, raw=self.next, prev=self)

@@ -169,7 +169,7 @@ class AlertAck(packet_base):
 # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 # =============================================================================
 
-class AlertBrdc(packet_base):
+class AlertBrdcRqst(packet_base):
     '''
         The implementation of the alert broadcast message used to block a unique IP accross internet for a duration (i.e. case of wide scanning)
     '''
@@ -179,7 +179,7 @@ class AlertBrdc(packet_base):
         self.version        = version
 
         self.proto          = 0     # 8 bits
-        self.type      = 0     # 8 bits
+        self.type           = 0     # 8 bits
         self.duration       = 0     # 16 bits
         self.sip            = None  # 32 - 128 bits
 
@@ -201,9 +201,9 @@ class AlertBrdc(packet_base):
         self.raw = raw
         self.size = len(raw)
         (self.proto, self.type, self.duration) = struct.unpack('!BBH', raw[:4])
-        if self.size == 12 :
+        if self.size == 8 :
             self.sip = IPAddr(raw[4:8], networkOrder = False)
-        elif self.size == 36 :
+        elif self.size == 20 :
             self.sip = IPAddr6(raw[4:20], networkOrder = False)
         else :
             self.msg("Warning alert broadcast packet data too short to parse:"
@@ -211,16 +211,28 @@ class AlertBrdc(packet_base):
             return
         self.parsed = True
 
-    def __eq__(self, other:"AlertBrdc") -> bool:
-        if not isinstance(other, AlertBrdc): return False
+    def __eq__(self, other:"AlertBrdcRqst") -> bool:
+        if not isinstance(other, AlertBrdcRqst): return False
         if self.proto != other.proto: return False
         if self.type != other.type: return False
         if self.duration != other.duration: return False
         if self.sip != other.sip: return False
         return True
 
-    def _to_str(self):
-        return "[AlertBrdc [%d]:%s => %d -- %d ]" % (self.proto, self.sip, self,type, self.duration)
+    def _to_str(self) -> str:
+        return "[AlertBrdcRqst %s => %d -- %d -- %d]" % (self.sip, self.proto, self.type, self.duration)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self._to_str()
+
+class AlertBrdcRply(AlertAck):
+    def _to_str(self) -> str:
+        return "[AlertBrdcRply]"
+
+class AlertDelegateBrdcRqst(AlertBrdcRqst):
+    def _to_str(self) -> str:
+        return "[AlertDelegateBrdcRqst %s => %d -- %d -- %d]" % (self.sip, self.proto, self.type, self.duration)
+
+class AlertDelegateBrdcRply(AlertAck):
+    def _to_str(self) -> str:
+        return "[AlertDelegateBrdcRply]"

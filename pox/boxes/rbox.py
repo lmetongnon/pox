@@ -9,8 +9,8 @@ from pox.boxes.manager import Rmanager
 from pox.boxes.utils.mylist import List, PermissionList, FlowList, PolicyList, AlertList, BlackList
 from pox.boxes.utils.flow import FlowHeader, Flow
 from pox.boxes.proto.permission import PermissionRequest, PermissionReply
-from pox.boxes.proto.alert import AlertNotification, AlertBrdc, AlertAck
-from pox.boxes.proto.mexp import PERMISSION, PERMISSION_RQST, PERMISSION_RPLY, ALERT, ALERT_NOTIF, ALERT_ACK, ALERT_BRDT
+from pox.boxes.proto.alert import AlertNotification, AlertBrdcRqst, AlertAck
+from pox.boxes.proto.mexp import PERMISSION, PERMISSION_RQST, PERMISSION_RPLY, ALERT, ALERT_NOTIF, ALERT_ACK, ALERT_BRDT_RQST
 from pox.boxes.utils.detection import Detection
 from pox.boxes.utils.mitigation import Mitigation
 from pox.boxes.utils.tools import Permission, Alert
@@ -433,8 +433,18 @@ class Rbox(object):
 		else:
 			return COMPLAINT_RQST
 
-	def broadcastAlert(self, alertMessage):
-		return
+	def getAlertBroadcast(self, altBdrc:"AlertNotification"):
+		log.debug("getAlertBroadcast %s", altBdrc)
+		# dip = IP_ANY if self.messageManager.version in VERSION_MEXP_BOX_IPV4 else IPAddr6.UNDEFINED
+		flowHeader = FlowHeader(proto=altBdrc.proto, sip=altBdrc.sip)
+		if altBdrc.type == Alert.SCAN:
+			self.alertList.add(altBdrc.sip, Alert(altBdrc.type, flowHeader, None, altBdrc.duration))
+	
+	def sendBroadcastAlert(self, alertMessage:"Mexp"):
+		log.debug("sendBroadcastAlert %s", alertMessage)
+		if alertMessage.type == Alert.SCAN:
+			mexp = Mexp(version=alertMessage.version, tcode=ALERT, code=ALERT_BRDT_RQST, payload=AlertBrdcRqst(version=alertMessage.version, proto=alertMessage.proto, type=alertMessage.type, sip=alertMessage.sip, duration=alertMessage.duration))
+			self.messageManager.sendAndListen(mexp, self.messageManager.zbox)
 	
 	def _checkTrafficExists(self, trafficType:"Alert.type", flowHeader:"FlowHeader") -> bool:
 		return True

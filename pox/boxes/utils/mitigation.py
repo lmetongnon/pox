@@ -5,7 +5,7 @@ import threading, time
 
 from pox.lib.util import initHelper
 from pox.lib.addresses import IPAddr, IPAddr6
-from pox.boxes.proto.mexp import Mexp, ALERT, ALERT_NOTIF, ALERT_BRDT
+from pox.boxes.proto.mexp import Mexp, ALERT, ALERT_NOTIF, ALERT_BRDT_RQST
 from pox.boxes.utils.mylist import BoxList
 from pox.boxes.utils.tools import Alert, Policy
 from pox.boxes.proto.alert import AlertNotification
@@ -56,7 +56,7 @@ class Mitigation(AbstractMitigation):
 			box = self.box.messageManager.lookupBox(alert.flowHeader.sip)
 			mexp =  Mexp(version=self.box.messageManager.version, tcode=ALERT, code=ALERT_NOTIF, payload=AlertNotification(version=self.box.messageManager.version, proto=alert.flowHeader.proto, type=Alert.SCAN, sip=alert.flowHeader.sip, duration=Policy.DEFAULT_POLICY['perpetrator_mitigation']['scan']))
 			self.box.messageManager.sendAndListen(mexp, box)
-			self.box.broadcastAlert(mexp.payload)
+			self.box.sendBroadcastAlert(mexp.payload)
 		self.box.addrBlacklist.add(time.time() + alert.duration, alert.flowHeader.sip)
 		for flowHeader in flowList[alert.flowHeader.sip]:
 			if flowHeader.sip != alert.flowHeader.sip:

@@ -14,7 +14,7 @@ from pox.boxes.utils.mylist import BoxList
 from pox.boxes.proto.activation import ZoneRequest, ZoneReply, RegistrationRequest, RegistrationReply
 from pox.boxes.proto.lookup import LookupRequest, LookupDelegateRequest, LookupReply, LookupDelegateReply
 from pox.boxes.proto.mexp import ACTIVATION, ALERT, LOOKUP, PERMISSION, POLICY, FLOW, SYNC, COMPLAINT
-from pox.boxes.proto.mexp import ZONE_RQST, ZONE_RPLY, REG_RQST, REG_RPLY, MESSAGE_ERR, PERMISSION_RQST, PERMISSION_RPLY, LOOKUP_RQST, LOOKUP_RPLY, LOOKUP_DL_RQST, LOOKUP_DL_RPLY, ALERT_NOTIF, ALERT_BRDT, ALERT_ACK, COMPLAINT_RQST, COMPLAINT_INQ, COMPLAINT_RPLY, COMPLAINT_MITI
+from pox.boxes.proto.mexp import ZONE_RQST, ZONE_RPLY, REG_RQST, REG_RPLY, MESSAGE_ERR, PERMISSION_RQST, PERMISSION_RPLY, LOOKUP_RQST, LOOKUP_RPLY, LOOKUP_DL_RQST, LOOKUP_DL_RPLY, ALERT_NOTIF, ALERT_ACK, ALERT_BRDT_RQST, ALERT_BRDT_RPLY, ALERT_DL_BRDT_RQST, ALERT_DL_BRDT_RPLY, COMPLAINT_RQST, COMPLAINT_INQ, COMPLAINT_RPLY, COMPLAINT_MITI
 
 from socket import *
 
@@ -263,12 +263,15 @@ class Rmanager(MessageManager):
 		elif mexp.code == ALERT_ACK:
 			# Save the flowheader for now to check if the traffic is really stop if not send COMPLAINT
 			pass
-		elif mexp.code == ALERT_BRDT:
+		elif mexp.code == ALERT_BRDT_RPLY:
+			# Save the flowheader for now to check if the traffic is really stop if not send COMPLAINT
+			pass
+		elif mexp.code == ALERT_DL_BRDT_RQST:
 			if not mexp.payload.parsed:
 				self.msg("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
 			else:
-				self.box.alertBroadcast(mexp.payload)
-				mexpReply = Mexp(version=mexp.version, tcode=mexp.tcode, code=ALERT_ACK, mid=mexp.mid+1)
+				self.box.getAlertBroadcast(mexp.payload)
+				mexpReply = Mexp(version=mexp.version, tcode=mexp.tcode, code=ALERT_DL_BRDT_RPLY, mid=mexp.mid+1)
 				self.send(mexpReply, clientSocket)
 	
 	def	processLookup(self, mexp:"Mexp", clientSocket) -> None:
@@ -355,9 +358,14 @@ class Zmanager(MessageManager):
 				self.sendAndListen(mexp=mexp, clientAddress=tbox, thread=False)
 				return self.lookupBox(network)
 
-	def broadcastAlert(self, alertMsg:"AlertBrdc") -> None:
-		for boxID in self.boxRecords:
-			self.sendAndListen(Mexp(version=mexp.version, tcode=mexp.tcode, code=ALERT_BRDT, payload=AlertBrdc()), boxID)
+	def broadcastAlert(self, senderBox, alertMsg:"AlertDelegateBrdcRqst") -> None:
+		self.debug("Zmanager broadcastAlert: %s %s", senderBox, alertMsg)
+		for network in list(self.boxRecords):
+			boxID = self.boxRecords[network]
+			self.debug("broadcastAlert boxID: %s", boxID)	
+			if not boxID[0] == senderBox and not alertMsg.sip.in_network(network):
+				mexp = Mexp(version=self.version, tcode=ALERT, code= ALERT_DL_BRDT_RQST, payload=alertMsg)
+				self.sendAndListen(mexp, boxID)
 
 	def	processActivation(self, mexp:"Mexp", clientSocket):
 		if mexp.code == REG_RQST:
@@ -381,16 +389,16 @@ class Zmanager(MessageManager):
 			self.err("Zbox does not manage code message %s" % mexp.code)
 
 	def	processAlert(self, mexp:"Mexp", clientSocket):
-		if   mexp.code == ALERT_ACK:
-			# Save the flowheader for now to check if the traffic is really stop if not send COMPLAINT
-			pass
-		elif mexp.code == ALERT_BRDT:
+		if 	 mexp.code == ALERT_BRDT_RQST:
 			if not mexp.payload.parsed:
 				self.err("Rbox can't parse (%s, %s)", mexp.tcode, mexp.code)
 			else:
-				self.broadcastAlert(mexp.payload)
-				mexpReply = Mexp(version=mexp.version, tcode=mexp.tcode, code=ALERT_ACK, mid=mexp.mid+1)
+				mexpReply = Mexp(version=mexp.version, tcode=mexp.tcode, code=ALERT_BRDT_RPLY, mid=mexp.mid+1)
 				self.send(mexpReply, clientSocket)
+				self.broadcastAlert(mexp.boxIP, mexp.payload)
+		elif mexp.code == ALERT_BRDT_RPLY:
+			# Save the flowheader for now to check if the traffic is really stop if not send COMPLAINT
+			pass
 	
 	def	processComplaint(self, mexp:"Mexp", clientSocket):
 		pass
