@@ -121,7 +121,8 @@ class Detection(AbstractDetection):
 			if len(flow.actions) > 0 and flow.packet_count > Detection.THRESHOLDPACKETCOUNT and flow.byte_count / (flow.duration_sec + 10**-9 * flow.duration_nsec) > Detection.THRESHOLDDOSTHROUPUT:
 				policy = self.box.policyList[flowHeader.dip]
 				log.debug("dosDetection duration: %d" % (policy.victim_mitigation['dos']))
-				self.box.alertList.add(deviceIP, Alert(Alert.DOS, FlowHeader.fromMatch(flow.match), flow, policy.victim_mitigation['dos']))
+				flowHeader = FlowHeader.fromMatch(flow.match)
+				self.box.alertList.add(flowHeader.sip, Alert(Alert.DOS, flowHeader, flow, policy.victim_mitigation['dos']))
 				found = True
 		return found
 
@@ -167,7 +168,8 @@ class Detection(AbstractDetection):
 		log.debug("ddosDetection flowHeader: %s devices: %d, bytes: %d, cond1: %s, cond2: %s" % (flowHeader, len(flowheaders), allByteCount, allByteCount > Detection.THRESHOLDDDOSBYTESIZE, len(flowheaders) >= Detection.THRESHOLDDDOSRATIONUMBERDEVICE * len(flowList)))
 
 		if allByteCount > Detection.THRESHOLDDDOSBYTESIZE and len(flowheaders) >= Detection.THRESHOLDDDOSRATIONUMBERDEVICE * len(flowList):
-			self.box.alertList.add(deviceIP, Alert(Alert.DDOS, flowheaders, flows, durations))
+			for i in range(len(flowheaders)):
+				self.box.alertList.add(flowheaders[i].sip, Alert(Alert.DDOS, flowheaders[i], flows[i], durations[i]))
 			found = True
 		return found
 
