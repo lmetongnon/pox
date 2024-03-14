@@ -3,6 +3,7 @@ from pox.lib.packet.packet_utils import *
 
 from pox.lib.packet.packet_base import packet_base
 from pox.lib.addresses import *
+from pox.boxes.proto.mexp import VERSION_MEXP_BOX_IPV4, VERSION_MEXP_BOX_IPV6
 
 # 1. The complaint request sent by a RearBox to its ZoneBox with the
 # the IP address of the RearBox perpetrator and a proof of the
@@ -54,7 +55,7 @@ class ComplaintRequest(packet_base):
         self.prev           = prev
         self.version        = version
 
-        self.boxIP          = None  # 32 - 128 bits
+        self.boxIP          = IP_ANY if self.version in VERSION_MEXP_BOX_IPV4 else IPAddr6.UNDEFINED  # 32 - 128 bits
         
         self.next           = b''
 
