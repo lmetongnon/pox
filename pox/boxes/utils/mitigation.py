@@ -76,7 +76,7 @@ class Mitigation(AbstractMitigation):
 		if myDevice is None:
 			log.error("dosMitigation, we don't get the device affiliation (victim or perpetrator)")
 
-		if myDevice:
+		if not myDevice:
 			policy = self.box.policyList[alert.flowHeader.dip]
 			if alert.flow is not None:
 				if alert.flowHeader.sip not in policy.whitelist:
@@ -105,7 +105,7 @@ class Mitigation(AbstractMitigation):
 		if myDevice is None:
 			log.error("ddosMitigation, we don't get the device affiliation (victim or perpetrator)")
 		
-		if myDevice:
+		if not myDevice:
 			policy = self.box.policyList[alert.flowHeader.dip]
 			if alert.flowHeader.sip not in policy.whitelist:
 				self.box.dropFlow(alert.flowHeader, alert.flow, alert.duration)
