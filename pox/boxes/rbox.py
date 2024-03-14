@@ -425,10 +425,7 @@ class Rbox(object):
 		# Check if I'm sending this traffic, stop and send ack
 		flowHeader = FlowHeader(proto=altNotif.proto, sip=altNotif.sip, dip=altNotif.dip, sport=altNotif.sport, dport=altNotif.dport)
 		if self._checkTrafficExists(altNotif.type, flowHeader):
-			if altNotif.type == Alert.SCAN:
-				self.alertList.add(altNotif.sip, Alert(altNotif.type, flowHeader, None, altNotif.duration) )
-			else:
-				self.alertList.add(altNotif.dip, Alert(altNotif.type, flowHeader, None, altNotif.duration) )
+			self.alertList.add(altNotif.sip, Alert(altNotif.type, flowHeader, None, altNotif.duration) )
 			return ALERT_ACK
 		else:
 			return COMPLAINT_RQST
